@@ -135,7 +135,6 @@ class Location:
     
     def _determine_climate_zone(self):
         """Détermine la zone climatique selon la localisation."""
-        
         # Malaysia a un climat tropical, mais avec variations
         if self.climate_zone == 'tropical':  # Valeur par défaut
             
@@ -333,3 +332,79 @@ class Location:
             'population': self.population,
             'timezone': self.timezone,
             'altitude': self.altitude,
+            'climate_zone': self.climate_zone,
+            'postal_codes': self.postal_codes,
+            'administrative_info': self.administrative_info,
+            'created_at': self.created_at.isoformat(),
+            'climate_characteristics': self.get_climate_characteristics(),
+            'energy_context': self.get_energy_context(),
+            'is_urban': self.is_urban_area(),
+            'is_metropolitan': self.is_metropolitan_area(),
+            'is_in_malaysia': self.is_in_malaysia()
+        }
+    
+    def __str__(self) -> str:
+        """Représentation textuelle de la localisation."""
+        return f"Location({self.city}, {self.state}, {self.latitude}, {self.longitude})"
+    
+    def __repr__(self) -> str:
+        """Représentation pour le debug."""
+        return (f"Location(city='{self.city}', state='{self.state}', "
+                f"latitude={self.latitude}, longitude={self.longitude}, "
+                f"location_id='{self.location_id}')")
+
+
+# Fonctions utilitaires pour créer des locations
+
+def create_location_from_coordinates(city: str, latitude: float, longitude: float, **kwargs) -> Location:
+    """
+    Crée une instance Location à partir de coordonnées.
+    
+    Args:
+        city: Nom de la ville
+        latitude: Latitude
+        longitude: Longitude
+        **kwargs: Paramètres additionnels
+        
+    Returns:
+        Instance Location
+    """
+    return Location(
+        city=city,
+        latitude=latitude,
+        longitude=longitude,
+        **kwargs
+    )
+
+
+def create_location_from_dict(location_data: Dict) -> Location:
+    """
+    Crée une instance Location à partir d'un dictionnaire.
+    
+    Args:
+        location_data: Dictionnaire contenant les données de localisation
+        
+    Returns:
+        Instance Location
+    """
+    # Champs obligatoires
+    required_fields = ['city', 'latitude', 'longitude']
+    for field in required_fields:
+        if field not in location_data:
+            raise ValueError(f"Champ obligatoire manquant: {field}")
+    
+    # Créer l'instance avec tous les champs disponibles
+    location_kwargs = {}
+    for key, value in location_data.items():
+        if hasattr(Location, key):
+            location_kwargs[key] = value
+    
+    return Location(**location_kwargs)
+
+
+# Export des classes et fonctions
+__all__ = [
+    'Location',
+    'create_location_from_coordinates',
+    'create_location_from_dict'
+]

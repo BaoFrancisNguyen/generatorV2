@@ -48,7 +48,15 @@ class ElectricityDataGenerator:
         """
         self.logger = logging.getLogger(__name__)
         self.config = config
-        self.faker = Faker(['en_MY', 'ms_MY'])  # Locale Malaysia
+        
+        # ✅ CORRECTION: Utiliser des locales supportés par Faker
+        # en_US pour l'anglais et id_ID pour l'indonésien (proche du malaysien)
+        try:
+            self.faker = Faker(['en_US', 'id_ID'])  # Locales supportés
+        except AttributeError:
+            # Fallback si id_ID n'est pas disponible
+            self.faker = Faker(['en_US'])
+            self.logger.warning("⚠️ Locale id_ID non disponible, utilisation de en_US uniquement")
         
         # Initialiser les données de base
         self.malaysia_data = MalaysiaLocationData()
@@ -123,15 +131,15 @@ class ElectricityDataGenerator:
         
         Args:
             num_buildings: Nombre de bâtiments à générer
-            location_filter: Filtre géographique
-            building_types: Types de bâtiments souhaités
+            location_filter: Filtre pour les localisations
+            building_types: Types de bâtiments autorisés
             
         Returns:
             DataFrame avec les métadonnées des bâtiments
         """
-        self.logger.info(f"📊 Génération des métadonnées pour {num_buildings} bâtiments")
+        self.logger.debug(f"📋 Génération des métadonnées pour {num_buildings} bâtiments")
         
-        buildings = []
+        buildings_data = []
         
         for i in range(num_buildings):
             # Sélectionner une localisation
@@ -140,25 +148,27 @@ class ElectricityDataGenerator:
             # Sélectionner un type de bâtiment
             building_type = self._select_building_type(location, building_types)
             
-            # Générer un identifiant unique
-            unique_id = self._generate_unique_id()
-            building_id = self._generate_building_id(location, i)
+            # Générer les caractéristiques du bâtiment
+            characteristics = self._generate_building_characteristics(building_type, location)
             
-            # Créer le bâtiment
+            # Créer l'instance Building
             building = Building(
-                unique_id=unique_id,
-                building_id=building_id,
+                unique_id=self._generate_unique_id(),
+                building_id=self._generate_building_id(location, i),
                 location=location,
                 building_type=building_type,
-                characteristics=self._generate_building_characteristics(building_type, location)
+                characteristics=characteristics,
+                osm_source=False,
+                validation_status='valid'
             )
             
-            buildings.append(building.to_dict())
+            # Convertir en dictionnaire pour le DataFrame
+            buildings_data.append(building.to_dict())
         
-        df = pd.DataFrame(buildings)
-        self.logger.info(f"✅ {len(df)} bâtiments générés avec métadonnées complètes")
+        buildings_df = pd.DataFrame(buildings_data)
+        self.logger.debug(f"✅ Métadonnées générées: {len(buildings_df)} bâtiments")
         
-        return df
+        return buildings_df
     
     def generate_timeseries_data(self,
                                buildings_df: pd.DataFrame,
@@ -175,43 +185,44 @@ class ElectricityDataGenerator:
             frequency: Fréquence des données
             
         Returns:
-            DataFrame avec les séries temporelles
+            DataFrame des séries temporelles
         """
-        self.logger.info(f"⏰ Génération des séries temporelles {frequency} du {start_date} au {end_date}")
+        self.logger.debug(f"⏰ Génération des séries temporelles en fréquence {frequency}")
         
-        # Créer l'index temporel
-        date_range = pd.date_range(
-            start=start_date,
-            end=end_date,
-            freq=frequency,
-            tz='Asia/Kuala_Lumpur'
-        )
+        # Créer la plage temporelle
+        date_range = pd.date_range(start=start_date, end=end_date, freq=frequency)
         
-        all_timeseries = []
+        timeseries_data = []
         
         for _, building in buildings_df.iterrows():
-            # Générer la série temporelle pour ce bâtiment
-            consumption_data = self._generate_building_consumption(
-                building=building,
+            # Générer les patterns de consommation pour ce bâtiment
+            building_timeseries = self.pattern_generator.generate_consumption_pattern(
+                building_type=building['building_class'],
                 date_range=date_range,
-                frequency=frequency
+                location_data=building,
+                characteristics=building.get('characteristics', {})
             )
             
-            # Créer les enregistrements de série temporelle
-            for timestamp, consumption in zip(date_range, consumption_data):
-                timeseries_record = TimeSeries(
+            # Convertir en observations TimeSeries
+            for timestamp, consumption in building_timeseries.items():
+                observation = TimeSeries(
                     unique_id=building['unique_id'],
                     timestamp=timestamp,
-                    consumption_kwh=consumption
+                    consumption_kwh=consumption,
+                    quality_score=np.random.uniform(95, 100),  # Haute qualité pour données synthétiques
+                    anomaly_flag=False,
+                    validation_status='valid'
                 )
-                all_timeseries.append(timeseries_record.to_dict())
+                
+                timeseries_data.append(observation.to_dict())
         
-        df = pd.DataFrame(all_timeseries)
-        self.logger.info(f"✅ {len(df)} observations de consommation générées")
+        timeseries_df = pd.DataFrame(timeseries_data)
+        self.logger.debug(f"✅ Séries temporelles générées: {len(timeseries_df)} observations")
         
-        return df
+        return timeseries_df
     
-    def _validate_generation_parameters(self, num_buildings, start_date, end_date, frequency):
+    def _validate_generation_parameters(self, num_buildings: int, start_date: str, 
+                                      end_date: str, frequency: str):
         """
         Valide les paramètres de génération.
         
@@ -224,15 +235,14 @@ class ElectricityDataGenerator:
         Raises:
             ValueError: Si les paramètres sont invalides
         """
-        # Valider le nombre de bâtiments
-        if not isinstance(num_buildings, int) or num_buildings < 1:
-            raise ValueError("Le nombre de bâtiments doit être un entier positif")
+        # Validation du nombre de bâtiments
+        if num_buildings <= 0:
+            raise ValueError("Le nombre de bâtiments doit être positif")
         
-        if self.config:
-            if num_buildings > self.config.MAX_BUILDINGS:
-                raise ValueError(f"Nombre maximum de bâtiments: {self.config.MAX_BUILDINGS}")
+        if self.config and num_buildings > self.config.MAX_BUILDINGS:
+            raise ValueError(f"Nombre maximum de bâtiments: {self.config.MAX_BUILDINGS}")
         
-        # Valider les dates
+        # Validation des dates
         try:
             start_dt = datetime.strptime(start_date, '%Y-%m-%d')
             end_dt = datetime.strptime(end_date, '%Y-%m-%d')
@@ -244,11 +254,11 @@ class ElectricityDataGenerator:
         
         # Valider la période
         period_days = (end_dt - start_dt).days
-        if self.config and period_days > self.config.MAX_PERIOD_DAYS:
+        if self.config and hasattr(self.config, 'MAX_PERIOD_DAYS') and period_days > self.config.MAX_PERIOD_DAYS:
             raise ValueError(f"Période maximum: {self.config.MAX_PERIOD_DAYS} jours")
         
         # Valider la fréquence
-        if self.config and frequency not in self.config.SUPPORTED_FREQUENCIES:
+        if self.config and hasattr(self.config, 'SUPPORTED_FREQUENCIES') and frequency not in self.config.SUPPORTED_FREQUENCIES:
             raise ValueError(f"Fréquences supportées: {self.config.SUPPORTED_FREQUENCIES}")
     
     def _select_location(self, location_filter: Optional[Dict] = None) -> Location:
@@ -274,7 +284,9 @@ class ElectricityDataGenerator:
         # Sélectionner aléatoirement avec pondération par population
         location_data = self.malaysia_data.select_weighted_location(available_locations)
         
-        return Location.from_dict(location_data)
+        # Créer une instance Location
+        from app.models.location import create_location_from_dict
+        return create_location_from_dict(location_data)
     
     def _select_building_type(self, location: Location, building_types: Optional[List[str]] = None) -> str:
         """
@@ -288,7 +300,8 @@ class ElectricityDataGenerator:
             Type de bâtiment sélectionné
         """
         # Obtenir la distribution des types selon la localisation
-        type_distribution = self.malaysia_data.get_building_type_distribution(location)
+        location_dict = location.to_dict() if hasattr(location, 'to_dict') else location.__dict__
+        type_distribution = self.malaysia_data.get_building_type_distribution(location_dict)
         
         # Filtrer selon les types autorisés
         if building_types:
@@ -298,6 +311,9 @@ class ElectricityDataGenerator:
             }
         
         # Sélection pondérée
+        if not type_distribution:
+            return 'residential'  # Fallback
+            
         types = list(type_distribution.keys())
         weights = list(type_distribution.values())
         
@@ -314,65 +330,68 @@ class ElectricityDataGenerator:
         Returns:
             Dictionnaire des caractéristiques
         """
-        base_characteristics = {
+        characteristics = {
             'building_type': building_type,
-            'location_type': location.type,
-            'climate_zone': location.climate_zone
+            'construction_year': np.random.randint(1980, 2024),
+            'floor_area_sqm': self._generate_floor_area(building_type),
+            'floors': self._generate_floor_count(building_type),
+            'ac_installed': np.random.choice([True, False], p=[0.8, 0.2]),  # 80% ont la climatisation en Malaysia
+            'energy_efficiency': np.random.choice(['A', 'B', 'C', 'D'], p=[0.2, 0.3, 0.4, 0.1])
         }
         
-        # Caractéristiques selon le type de bâtiment
+        # Ajustements selon le type de bâtiment
         if building_type == 'residential':
-            base_characteristics.update({
-                'num_units': np.random.randint(1, 20),
-                'avg_occupancy': np.random.uniform(2.5, 4.5),
-                'has_ac': np.random.choice([True, False], p=[0.8, 0.2]),
-                'building_age': np.random.randint(1, 50)
+            characteristics.update({
+                'occupants': np.random.randint(1, 6),
+                'apartment_type': np.random.choice(['condo', 'terrace', 'semi-d', 'bungalow'], 
+                                                 p=[0.4, 0.3, 0.2, 0.1])
             })
-        
         elif building_type == 'commercial':
-            base_characteristics.update({
-                'floor_area_sqm': np.random.randint(100, 2000),
-                'business_type': np.random.choice(['retail', 'office', 'restaurant', 'mall']),
-                'operating_hours': np.random.randint(8, 16),
-                'cooling_intensity': np.random.uniform(0.7, 1.0)
+            characteristics.update({
+                'business_type': np.random.choice(['office', 'retail', 'restaurant', 'hotel'], 
+                                                p=[0.4, 0.3, 0.2, 0.1]),
+                'employees': np.random.randint(5, 200)
             })
-        
         elif building_type == 'industrial':
-            base_characteristics.update({
-                'industry_type': np.random.choice(['manufacturing', 'processing', 'warehouse']),
-                'shift_pattern': np.random.choice(['1-shift', '2-shift', '3-shift']),
-                'energy_intensity': np.random.uniform(0.8, 1.2),
-                'process_load': np.random.uniform(0.3, 0.8)
+            characteristics.update({
+                'industry_type': np.random.choice(['manufacturing', 'warehouse', 'processing'], 
+                                                p=[0.5, 0.3, 0.2]),
+                'machinery_count': np.random.randint(10, 100)
             })
         
-        return base_characteristics
+        return characteristics
     
-    def _generate_building_consumption(self, 
-                                     building: pd.Series,
-                                     date_range: pd.DatetimeIndex,
-                                     frequency: str) -> np.ndarray:
-        """
-        Génère la série de consommation pour un bâtiment spécifique.
+    def _generate_floor_area(self, building_type: str) -> float:
+        """Génère une superficie réaliste selon le type de bâtiment."""
+        area_ranges = {
+            'residential': (50, 300),
+            'commercial': (100, 2000),
+            'industrial': (500, 5000),
+            'public': (200, 1500)
+        }
         
-        Args:
-            building: Données du bâtiment
-            date_range: Plage temporelle
-            frequency: Fréquence des données
-            
-        Returns:
-            Array des valeurs de consommation
-        """
-        # Utiliser le générateur de patterns énergétiques
-        return self.pattern_generator.generate_consumption_pattern(
-            building_type=building['building_class'],
-            location=building['location'],
-            date_range=date_range,
-            frequency=frequency,
-            characteristics=building.get('characteristics', {})
-        )
+        min_area, max_area = area_ranges.get(building_type, (100, 500))
+        return round(np.random.uniform(min_area, max_area), 1)
+    
+    def _generate_floor_count(self, building_type: str) -> int:
+        """Génère un nombre d'étages réaliste selon le type de bâtiment."""
+        floor_ranges = {
+            'residential': (1, 3),
+            'commercial': (1, 20),
+            'industrial': (1, 4),
+            'public': (1, 10)
+        }
+        
+        min_floors, max_floors = floor_ranges.get(building_type, (1, 3))
+        return np.random.randint(min_floors, max_floors + 1)
     
     def _generate_unique_id(self) -> str:
-        """Génère un identifiant unique de 16 caractères."""
+        """
+        Génère un identifiant unique de 16 caractères.
+        
+        Returns:
+            Identifiant unique
+        """
         return uuid.uuid4().hex[:16]
     
     def _generate_building_id(self, location: Location, index: int) -> str:
@@ -386,7 +405,7 @@ class ElectricityDataGenerator:
         Returns:
             ID formaté (ex: MY_KUL_000123)
         """
-        state_code = location.state_code if hasattr(location, 'state_code') else 'UNK'
+        state_code = getattr(location, 'state_code', 'UNK')
         return f"MY_{state_code}_{index:06d}"
     
     def _generate_dataset_metadata(self, 
@@ -416,10 +435,10 @@ class ElectricityDataGenerator:
             },
             'geographic_coverage': {
                 'country': 'Malaysia',
-                'cities_included': buildings_df['location'].unique().tolist(),
+                'cities_included': buildings_df['location'].unique().tolist() if 'location' in buildings_df.columns else [],
                 'states_included': buildings_df['state'].unique().tolist() if 'state' in buildings_df.columns else []
             },
-            'building_distribution': buildings_df['building_class'].value_counts().to_dict(),
+            'building_distribution': buildings_df['building_class'].value_counts().to_dict() if 'building_class' in buildings_df.columns else {},
             'data_quality': {
                 'completeness': 100.0,
                 'null_values': 0,
@@ -445,7 +464,8 @@ class ElectricityDataGenerator:
                 'timezone': 'Asia/Kuala_Lumpur',
                 'currency': 'MYR',
                 'energy_unit': 'kWh'
-            }
+            },
+            'faker_locales': ['en_US', 'id_ID']  # Locales utilisés
         }
 
 

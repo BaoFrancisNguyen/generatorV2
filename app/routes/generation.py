@@ -9,6 +9,7 @@ Routes pour la génération de données énergétiques:
 - Génération basée sur OpenStreetMap
 - Aperçu et validation des paramètres
 - Export dans différents formats
+- Téléchargement de fichiers générés
 
 Auteur: Équipe Développement
 Date: 2025
@@ -16,7 +17,9 @@ Version: 3.0 - Routes modulaires
 """
 
 import logging
+import os
 from datetime import datetime
+from pathlib import Path
 from flask import Blueprint, request, jsonify, current_app, send_file
 from werkzeug.exceptions import BadRequest
 
@@ -40,11 +43,13 @@ def generate_standard():
         "frequency": "D",
         "location_filter": {...},
         "building_types": [...],
-        "export_format": "parquet"
+        "export_format": "parquet",
+        "download_immediately": false,
+        "return_data": true
     }
     
     Returns:
-        JSON avec les données générées ou le chemin du fichier d'export
+        JSON avec les données générées ou fichier en téléchargement
     """
     logger.info("🏗️ Demande de génération standard")
     
@@ -68,71 +73,82 @@ def generate_standard():
         
         # Extraire les paramètres
         generation_params = {
-            'num_buildings': data.get('num_buildings', current_app.config['DEFAULT_NUM_BUILDINGS']),
-            'start_date': data.get('start_date', current_app.config['DEFAULT_START_DATE']),
-            'end_date': data.get('end_date', current_app.config['DEFAULT_END_DATE']),
-            'frequency': data.get('frequency', current_app.config['DEFAULT_FREQUENCY']),
+            'num_buildings': data.get('num_buildings', current_app.config.get('DEFAULT_NUM_BUILDINGS', 100)),
+            'start_date': data.get('start_date', current_app.config.get('DEFAULT_START_DATE', '2024-01-01')),
+            'end_date': data.get('end_date', current_app.config.get('DEFAULT_END_DATE', '2024-01-31')),
+            'frequency': data.get('frequency', current_app.config.get('DEFAULT_FREQUENCY', 'D')),
             'location_filter': data.get('location_filter'),
             'building_types': data.get('building_types')
         }
         
-        export_format = data.get('export_format', 'json')
-        return_data = data.get('return_data', True)
+        logger.info(f"📊 Génération: {generation_params['num_buildings']} bâtiments, "
+                   f"{generation_params['start_date']} → {generation_params['end_date']}")
         
-        logger.info(f"📊 Génération de {generation_params['num_buildings']} bâtiments "
-                   f"du {generation_params['start_date']} au {generation_params['end_date']}")
-        
-        # Génération des données
+        # Mesurer le temps de génération
         start_time = datetime.now()
+        
+        # Générer le dataset
         dataset = current_app.data_generator.generate_complete_dataset(**generation_params)
-        generation_time = (datetime.now() - start_time).total_seconds()
         
-        # Validation des données générées
-        validation_results = current_app.validation_service.validate_complete_dataset(
-            dataset['buildings'], 
-            dataset['timeseries']
-        )
+        # Calculer les statistiques
+        generation_duration = (datetime.now() - start_time).total_seconds()
         
-        # Préparer la réponse
+        # Préparer la réponse de base
         response_data = {
             'success': True,
-            'generation_time_seconds': round(generation_time, 2),
-            'metadata': dataset['metadata'],
-            'validation': validation_results,
-            'statistics': _calculate_dataset_statistics(dataset)
+            'generation_time': round(generation_duration, 3),
+            'parameters': generation_params,
+            'statistics': {
+                'buildings_generated': len(dataset['buildings']),
+                'timeseries_observations': len(dataset['timeseries']),
+                'period_days': (datetime.strptime(generation_params['end_date'], '%Y-%m-%d') - 
+                              datetime.strptime(generation_params['start_date'], '%Y-%m-%d')).days,
+                'frequency': generation_params['frequency']
+            },
+            'metadata': dataset.get('metadata', {})
         }
         
-        # Retourner les données ou exporter selon le format demandé
-        if return_data and export_format == 'json':
-            # Retourner directement les données en JSON
-            response_data['data'] = {
-                'buildings': dataset['buildings'].to_dict('records'),
-                'timeseries': dataset['timeseries'].to_dict('records')
-            }
-            return jsonify(response_data)
+        # Gestion de l'export et du téléchargement
+        export_format = data.get('export_format', 'json')
+        download_immediately = data.get('download_immediately', False)
+        return_data = data.get('return_data', True)
         
-        else:
-            # Exporter vers un fichier
+        if export_format != 'json' or not return_data:
+            # Export vers fichier
+            logger.info(f"📁 Export en format {export_format}")
+            
             export_result = current_app.export_service.export_dataset(
                 dataset, 
                 export_format,
-                include_metadata=True
+                include_metadata=True,
+                filename_prefix='malaysia_energy'
             )
             
             response_data['export'] = {
                 'format': export_format,
                 'files': export_result['files'],
-                'total_size_bytes': export_result['total_size']
+                'total_size_bytes': export_result['total_size'],
+                'total_size_mb': round(export_result['total_size'] / (1024 * 1024), 2),
+                'download_urls': [f"/generate/download/{file['name']}" for file in export_result['files']]
             }
             
-            if data.get('download_immediately', False):
-                # Téléchargement immédiat du premier fichier
+            # Si téléchargement immédiat demandé
+            if download_immediately and export_result['files']:
+                first_file = export_result['files'][0]
+                logger.info(f"📥 Téléchargement immédiat: {first_file['name']}")
                 return send_file(
-                    export_result['files'][0]['path'],
+                    first_file['path'],
                     as_attachment=True,
-                    download_name=export_result['files'][0]['filename']
+                    download_name=first_file['name']
                 )
             
+            return jsonify(response_data)
+        else:
+            # Retour JSON standard avec données incluses
+            response_data['data'] = {
+                'buildings': dataset['buildings'].to_dict('records'),
+                'timeseries': dataset['timeseries'].to_dict('records')
+            }
             return jsonify(response_data)
         
     except BadRequest as e:
@@ -195,88 +211,55 @@ def generate_from_osm():
         # Récupérer les bâtiments OSM
         start_time = datetime.now()
         
+        osm_buildings = []
         if 'city' in data:
             # Récupération par ville
             osm_buildings = current_app.osm_service.get_buildings_for_city(
                 city_name=data['city'],
-                limit=data.get('limit')
+                limit=data.get('limit', 1000)
             )
         elif 'bbox' in data:
             # Récupération par bbox
             osm_buildings = current_app.osm_service.get_buildings_in_bbox(
                 bbox=data['bbox'],
-                building_types=data.get('building_types')
+                limit=data.get('limit', 1000)
             )
-        elif 'coordinates' in data:
-            # Récupération autour d'un point
-            coords = data['coordinates']
-            osm_buildings = current_app.osm_service.get_buildings_around_point(
-                lat=coords['lat'],
-                lon=coords['lon'],
-                radius=data.get('radius', 1000),
-                building_types=data.get('building_types')
-            )
-        else:
-            raise BadRequest("Paramètre de localisation requis (city, bbox, ou coordinates)")
-        
-        osm_fetch_time = (datetime.now() - start_time).total_seconds()
         
         if not osm_buildings:
             return jsonify({
                 'success': False,
                 'error': 'Aucun bâtiment trouvé',
-                'details': 'Aucun bâtiment OSM trouvé pour les critères spécifiés'
+                'message': 'Aucun bâtiment OSM trouvé pour les critères spécifiés'
             }), 404
         
-        logger.info(f"📍 {len(osm_buildings)} bâtiments OSM récupérés en {osm_fetch_time:.2f}s")
+        logger.info(f"🏢 {len(osm_buildings)} bâtiments OSM récupérés")
         
-        # Convertir les bâtiments OSM en format générateur
-        buildings_df = _convert_osm_to_generator_format(osm_buildings)
-        
-        # Génération des séries temporelles
-        generation_start = datetime.now()
-        timeseries_df = current_app.data_generator.generate_timeseries_data(
-            buildings_df=buildings_df,
-            start_date=data.get('start_date', current_app.config['DEFAULT_START_DATE']),
-            end_date=data.get('end_date', current_app.config['DEFAULT_END_DATE']),
-            frequency=data.get('frequency', current_app.config['DEFAULT_FREQUENCY'])
-        )
-        generation_time = (datetime.now() - generation_start).total_seconds()
-        
-        # Créer le dataset complet
-        dataset = {
-            'buildings': buildings_df,
-            'timeseries': timeseries_df,
-            'metadata': {
-                'osm_source': True,
-                'osm_fetch_time_seconds': round(osm_fetch_time, 2),
-                'generation_time_seconds': round(generation_time, 2),
-                'total_buildings': len(buildings_df),
-                'total_observations': len(timeseries_df),
-                'osm_query_info': {
-                    'city': data.get('city'),
-                    'bbox': data.get('bbox'),
-                    'building_types_filter': data.get('building_types'),
-                    'limit': data.get('limit')
-                }
-            }
+        # Générer les données énergétiques pour ces bâtiments
+        generation_params = {
+            'start_date': data.get('start_date', '2024-01-01'),
+            'end_date': data.get('end_date', '2024-01-31'),
+            'frequency': data.get('frequency', 'D')
         }
         
-        # Validation des données
-        validation_results = current_app.validation_service.validate_complete_dataset(
-            buildings_df, timeseries_df
+        # Convertir les bâtiments OSM en dataset
+        dataset = current_app.data_generator.generate_from_osm_buildings(
+            osm_buildings=osm_buildings,
+            **generation_params
         )
+        
+        generation_duration = (datetime.now() - start_time).total_seconds()
         
         # Préparer la réponse
         response_data = {
             'success': True,
-            'osm_buildings_found': len(osm_buildings),
-            'osm_fetch_time_seconds': round(osm_fetch_time, 2),
-            'generation_time_seconds': round(generation_time, 2),
-            'total_time_seconds': round(osm_fetch_time + generation_time, 2),
-            'metadata': dataset['metadata'],
-            'validation': validation_results,
-            'statistics': _calculate_dataset_statistics(dataset)
+            'generation_time': round(generation_duration, 3),
+            'osm_source': True,
+            'parameters': {**generation_params, **data},
+            'statistics': {
+                'osm_buildings_found': len(osm_buildings),
+                'buildings_generated': len(dataset['buildings']),
+                'timeseries_observations': len(dataset['timeseries'])
+            }
         }
         
         # Export ou retour des données
@@ -284,8 +267,8 @@ def generate_from_osm():
         
         if data.get('return_data', True) and export_format == 'json':
             response_data['data'] = {
-                'buildings': buildings_df.to_dict('records'),
-                'timeseries': timeseries_df.to_dict('records')
+                'buildings': dataset['buildings'].to_dict('records'),
+                'timeseries': dataset['timeseries'].to_dict('records')
             }
             return jsonify(response_data)
         else:
@@ -300,7 +283,8 @@ def generate_from_osm():
             response_data['export'] = {
                 'format': export_format,
                 'files': export_result['files'],
-                'total_size_bytes': export_result['total_size']
+                'total_size_bytes': export_result['total_size'],
+                'download_urls': [f"/generate/download/{file['name']}" for file in export_result['files']]
             }
             
             return jsonify(response_data)
@@ -327,6 +311,14 @@ def preview_generation():
     """
     Aperçu des paramètres de génération avec estimations.
     
+    Body JSON:
+    {
+        "num_buildings": 100,
+        "start_date": "2024-01-01",
+        "end_date": "2024-01-31",
+        "frequency": "D"
+    }
+    
     Returns:
         JSON avec les estimations de temps, taille, et caractéristiques
     """
@@ -336,18 +328,64 @@ def preview_generation():
         data = request.get_json() or {}
         
         # Paramètres par défaut
-        num_buildings = data.get('num_buildings', current_app.config['DEFAULT_NUM_BUILDINGS'])
-        start_date = data.get('start_date', current_app.config['DEFAULT_START_DATE'])
-        end_date = data.get('end_date', current_app.config['DEFAULT_END_DATE'])
-        frequency = data.get('frequency', current_app.config['DEFAULT_FREQUENCY'])
+        num_buildings = data.get('num_buildings', current_app.config.get('DEFAULT_NUM_BUILDINGS', 100))
+        start_date = data.get('start_date', current_app.config.get('DEFAULT_START_DATE', '2024-01-01'))
+        end_date = data.get('end_date', current_app.config.get('DEFAULT_END_DATE', '2024-01-31'))
+        frequency = data.get('frequency', current_app.config.get('DEFAULT_FREQUENCY', 'D'))
         
         # Calculs d'estimation
-        estimations = _calculate_generation_estimations(
-            num_buildings, start_date, end_date, frequency
-        )
+        import pandas as pd
+        date_range = pd.date_range(start=start_date, end=end_date, freq=frequency)
+        total_observations = len(date_range) * num_buildings
+        
+        # Estimations de temps (basées sur des benchmarks)
+        base_time_per_building = 0.015  # 15ms par bâtiment
+        base_time_per_observation = 0.0008  # 0.8ms par observation
+        estimated_time_seconds = (num_buildings * base_time_per_building) + (total_observations * base_time_per_observation)
+        
+        # Estimation de taille de fichier
+        bytes_per_observation = {
+            'parquet': 120,  # Avec compression
+            'csv': 180,
+            'json': 250,
+            'excel': 200
+        }
+        
+        file_sizes = {}
+        for format_name, bytes_per_obs in bytes_per_observation.items():
+            size_bytes = total_observations * bytes_per_obs
+            file_sizes[format_name] = {
+                'bytes': size_bytes,
+                'mb': round(size_bytes / (1024 * 1024), 2),
+                'gb': round(size_bytes / (1024 * 1024 * 1024), 3)
+            }
+        
+        # Niveau de complexité
+        if total_observations < 10000:
+            complexity = 'low'
+            complexity_desc = 'Génération rapide et simple'
+        elif total_observations < 100000:
+            complexity = 'medium'
+            complexity_desc = 'Génération standard'
+        elif total_observations < 1000000:
+            complexity = 'high'
+            complexity_desc = 'Génération lourde - patience requise'
+        else:
+            complexity = 'very_high'
+            complexity_desc = 'Génération très lourde - considérer réduire les paramètres'
         
         # Recommandations
-        recommendations = _get_generation_recommendations(estimations)
+        recommendations = []
+        if estimated_time_seconds > 300:  # 5 minutes
+            recommendations.append("Temps de génération élevé - considérer l'export direct en fichier")
+        
+        if total_observations > 5000000:
+            recommendations.append("Dataset très volumineux - considérer réduire la période ou augmenter la fréquence")
+        
+        if frequency in ['15T', '5T', '1T']:
+            recommendations.append("Fréquence très fine - dataset volumineux résultant")
+        
+        recommendations.append(f"Format Parquet recommandé pour la performance ({file_sizes['parquet']['mb']} MB)")
         
         preview_data = {
             'success': True,
@@ -359,9 +397,16 @@ def preview_generation():
                 'location_filter': data.get('location_filter'),
                 'building_types': data.get('building_types')
             },
-            'estimations': estimations,
+            'estimations': {
+                'total_observations': total_observations,
+                'estimated_time_seconds': round(estimated_time_seconds, 2),
+                'estimated_time_formatted': _format_duration(estimated_time_seconds),
+                'complexity': complexity,
+                'complexity_description': complexity_desc,
+                'file_sizes': file_sizes
+            },
             'recommendations': recommendations,
-            'warnings': _get_generation_warnings(estimations),
+            'warnings': _get_generation_warnings(total_observations, estimated_time_seconds),
             'compatibility': {
                 'formats_supported': current_app.config.get('SUPPORTED_EXPORT_FORMATS', []),
                 'max_buildings': current_app.config.get('MAX_BUILDINGS'),
@@ -388,36 +433,36 @@ def generate_sample():
     Returns:
         JSON avec un petit dataset d'exemple
     """
-    logger.info("🧪 Génération d'échantillon de démonstration")
+    logger.info("🎯 Génération d'échantillon de démonstration")
     
     try:
         # Paramètres fixes pour l'échantillon
         sample_params = {
             'num_buildings': 5,
             'start_date': '2024-01-01',
-            'end_date': '2024-01-07',  # 1 semaine
-            'frequency': 'H'  # Données horaires
+            'end_date': '2024-01-07',
+            'frequency': 'D'
         }
         
-        # Génération rapide
+        # Générer l'échantillon
         start_time = datetime.now()
         dataset = current_app.data_generator.generate_complete_dataset(**sample_params)
-        generation_time = (datetime.now() - start_time).total_seconds()
+        generation_duration = (datetime.now() - start_time).total_seconds()
         
-        sample_data = {
+        return jsonify({
             'success': True,
-            'sample_type': 'demonstration',
-            'generation_time_seconds': round(generation_time, 2),
-            'metadata': dataset['metadata'],
+            'sample': True,
+            'generation_time': round(generation_duration, 3),
+            'parameters': sample_params,
             'data': {
                 'buildings': dataset['buildings'].to_dict('records'),
-                'timeseries': dataset['timeseries'].head(50).to_dict('records')  # Limiter à 50 observations
+                'timeseries': dataset['timeseries'].to_dict('records')
             },
-            'statistics': _calculate_dataset_statistics(dataset),
-            'note': 'Ceci est un échantillon de démonstration avec des données limitées'
-        }
-        
-        return jsonify(sample_data)
+            'statistics': {
+                'buildings_count': len(dataset['buildings']),
+                'observations_count': len(dataset['timeseries'])
+            }
+        })
         
     except Exception as e:
         logger.error(f"❌ Erreur lors de la génération d'échantillon: {e}")
@@ -428,61 +473,234 @@ def generate_sample():
         }), 500
 
 
-# Fonctions utilitaires privées
-
-def _convert_osm_to_generator_format(osm_buildings):
+@generation_bp.route('/download/<filename>', methods=['GET'])
+def download_file(filename):
     """
-    Convertit les bâtiments OSM au format attendu par le générateur.
+    Télécharge un fichier généré.
     
     Args:
-        osm_buildings: Liste des bâtiments OSM
+        filename: Nom du fichier à télécharger
         
     Returns:
-        DataFrame au format générateur
+        Fichier en téléchargement ou erreur 404
     """
-    import pandas as pd
+    logger.info(f"📥 Demande de téléchargement: {filename}")
     
-    converted_buildings = []
-    
-    for osm_building in osm_buildings:
-        # Générer un ID unique pour le générateur
-        unique_id = current_app.data_generator._generate_unique_id()
+    try:
+        # Vérifier que le fichier existe dans le répertoire d'export
+        export_dir = current_app.config.get('GENERATED_DATA_DIR', 'data/generated')
+        file_path = Path(export_dir) / filename
         
-        # Convertir au format générateur
-        building_data = {
-            'unique_id': unique_id,
-            'building_id': f"OSM_{osm_building.get('osm_id', unique_id)}",
-            'latitude': osm_building['latitude'],
-            'longitude': osm_building['longitude'],
-            'location': osm_building.get('city', 'Unknown'),
-            'building_class': osm_building['building_type'],
-            'osm_source': True,
-            'osm_id': osm_building.get('osm_id'),
-            'osm_tags': osm_building.get('tags', {}),
-            'area_sqm': osm_building.get('area_sqm'),
-            'levels': osm_building.get('levels'),
-            'height': osm_building.get('height')
-        }
+        if not file_path.exists():
+            logger.warning(f"⚠️ Fichier non trouvé: {filename}")
+            return jsonify({
+                'success': False,
+                'error': 'Fichier non trouvé',
+                'filename': filename
+            }), 404
         
-        converted_buildings.append(building_data)
-    
-    return pd.DataFrame(converted_buildings)
+        # Vérifier que le fichier est dans le bon répertoire (sécurité)
+        if not str(file_path.resolve()).startswith(str(Path(export_dir).resolve())):
+            logger.warning(f"🚫 Tentative d'accès non autorisé: {filename}")
+            return jsonify({
+                'success': False,
+                'error': 'Accès non autorisé'
+            }), 403
+        
+        # Déterminer le type MIME
+        mimetype = 'application/octet-stream'
+        if filename.endswith('.csv'):
+            mimetype = 'text/csv'
+        elif filename.endswith('.json'):
+            mimetype = 'application/json'
+        elif filename.endswith('.xlsx'):
+            mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        elif filename.endswith('.parquet'):
+            mimetype = 'application/octet-stream'
+        
+        logger.info(f"✅ Téléchargement démarré: {filename}")
+        
+        return send_file(
+            file_path,
+            as_attachment=True,
+            download_name=filename,
+            mimetype=mimetype
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Erreur lors du téléchargement de {filename}: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Erreur lors du téléchargement',
+            'details': str(e)
+        }), 500
 
 
-def _calculate_dataset_statistics(dataset):
+@generation_bp.route('/files', methods=['GET'])
+def list_generated_files():
+    """
+    Liste tous les fichiers générés disponibles au téléchargement.
+    
+    Returns:
+        JSON avec la liste des fichiers
+    """
+    logger.info("📋 Demande de liste des fichiers générés")
+    
+    try:
+        export_dir = Path(current_app.config.get('GENERATED_DATA_DIR', 'data/generated'))
+        
+        if not export_dir.exists():
+            return jsonify({
+                'success': True,
+                'files': [],
+                'message': 'Aucun fichier généré trouvé'
+            })
+        
+        files_info = []
+        
+        # Parcourir tous les fichiers dans le répertoire d'export
+        for file_path in export_dir.iterdir():
+            if file_path.is_file():
+                stat = file_path.stat()
+                
+                files_info.append({
+                    'name': file_path.name,
+                    'size_bytes': stat.st_size,
+                    'size_mb': round(stat.st_size / (1024 * 1024), 2),
+                    'created': datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                    'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    'extension': file_path.suffix,
+                    'download_url': f"/generate/download/{file_path.name}"
+                })
+        
+        # Trier par date de modification (plus récent en premier)
+        files_info.sort(key=lambda x: x['modified'], reverse=True)
+        
+        return jsonify({
+            'success': True,
+            'total_files': len(files_info),
+            'files': files_info,
+            'total_size_mb': round(sum(f['size_bytes'] for f in files_info) / (1024 * 1024), 2)
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de la liste des fichiers: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Erreur lors de la récupération de la liste des fichiers',
+            'details': str(e)
+        }), 500
+
+
+@generation_bp.route('/cleanup', methods=['POST'])
+def cleanup_old_files():
+    """
+    Nettoie les anciens fichiers générés.
+    
+    Body JSON:
+    {
+        "days_old": 7,  // Fichiers plus anciens que X jours
+        "confirm": true
+    }
+    
+    Returns:
+        JSON avec le résultat du nettoyage
+    """
+    logger.info("🧹 Demande de nettoyage des fichiers")
+    
+    try:
+        data = request.get_json() or {}
+        
+        if not data.get('confirm', False):
+            return jsonify({
+                'success': False,
+                'error': 'Confirmation requise',
+                'message': 'Ajoutez "confirm": true pour confirmer le nettoyage'
+            }), 400
+        
+        days_old = data.get('days_old', 7)
+        
+        # Utiliser le service d'export pour le nettoyage
+        cleanup_result = current_app.export_service.cleanup_old_files(days_old)
+        
+        return jsonify({
+            'success': cleanup_result['success'],
+            'files_deleted': cleanup_result['files_deleted'],
+            'size_freed_mb': round(cleanup_result['size_freed_bytes'] / (1024 * 1024), 2),
+            'days_old': days_old
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Erreur lors du nettoyage: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Erreur lors du nettoyage',
+            'details': str(e)
+        }), 500
+
+
+# Fonctions utilitaires
+def _format_duration(seconds):
+    """
+    Formate une durée en secondes en format lisible.
+    
+    Args:
+        seconds: Durée en secondes
+        
+    Returns:
+        Chaîne formatée (ex: "2m 30s")
+    """
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    elif seconds < 3600:
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{minutes}m {secs}s"
+    else:
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        return f"{hours}h {minutes}m"
+
+
+def _get_generation_warnings(total_observations, estimated_time_seconds):
+    """
+    Génère des avertissements basés sur les paramètres de génération.
+    
+    Args:
+        total_observations: Nombre total d'observations
+        estimated_time_seconds: Temps estimé en secondes
+        
+    Returns:
+        Liste des avertissements
+    """
+    warnings = []
+    
+    if total_observations > 1000000:
+        warnings.append("Dataset très volumineux - vérifiez que vous avez suffisamment d'espace disque")
+    
+    if estimated_time_seconds > 600:  # 10 minutes
+        warnings.append("Génération longue - considérez utiliser l'export direct plutôt que le retour JSON")
+    
+    if total_observations > 10000000:
+        warnings.append("Risque de dépassement de mémoire - considérez réduire les paramètres")
+    
+    return warnings
+
+
+def _calculate_generation_statistics(buildings_df, timeseries_df, start_date, end_date, frequency):
     """
     Calcule les statistiques d'un dataset généré.
     
     Args:
-        dataset: Dataset avec 'buildings' et 'timeseries'
+        buildings_df: DataFrame des bâtiments
+        timeseries_df: DataFrame des séries temporelles
+        start_date: Date de début
+        end_date: Date de fin
+        frequency: Fréquence
         
     Returns:
         Dictionnaire des statistiques
     """
-    buildings_df = dataset['buildings']
-    timeseries_df = dataset['timeseries']
-    
-    # Statistiques de base
     stats = {
         'total_buildings': len(buildings_df),
         'total_observations': len(timeseries_df),
@@ -512,6 +730,7 @@ def _calculate_dataset_statistics(dataset):
     
     # Période temporelle
     if 'timestamp' in timeseries_df.columns:
+        import pandas as pd
         timestamps = pd.to_datetime(timeseries_df['timestamp'])
         stats['temporal_coverage'] = {
             'start_date': timestamps.min().isoformat(),
@@ -520,91 +739,6 @@ def _calculate_dataset_statistics(dataset):
         }
     
     return stats
-
-
-def _calculate_generation_estimations(num_buildings, start_date, end_date, frequency):
-    """
-    Calcule les estimations pour une génération.
-    
-    Returns:
-        Dictionnaire avec les estimations
-    """
-    from datetime import datetime
-    import pandas as pd
-    
-    # Calculer le nombre d'observations
-    date_range = pd.date_range(start=start_date, end=end_date, freq=frequency)
-    total_observations = len(date_range) * num_buildings
-    
-    # Estimations de temps (basées sur des benchmarks)
-    base_time_per_building = 0.01  # 10ms par bâtiment
-    base_time_per_observation = 0.001  # 1ms par observation
-    
-    estimated_time = (num_buildings * base_time_per_building) + (total_observations * base_time_per_observation)
-    
-    # Estimation de taille (approximative)
-    bytes_per_observation = 150  # Estimation basée sur le format parquet
-    estimated_size_bytes = total_observations * bytes_per_observation
-    
-    return {
-        'total_observations': total_observations,
-        'estimated_time_seconds': round(estimated_time, 2),
-        'estimated_size_bytes': estimated_size_bytes,
-        'estimated_size_mb': round(estimated_size_bytes / (1024 * 1024), 2),
-        'complexity_level': _assess_complexity_level(num_buildings, total_observations)
-    }
-
-
-def _assess_complexity_level(num_buildings, total_observations):
-    """Évalue le niveau de complexité d'une génération."""
-    if total_observations < 10000:
-        return 'low'
-    elif total_observations < 100000:
-        return 'medium'
-    elif total_observations < 1000000:
-        return 'high'
-    else:
-        return 'very_high'
-
-
-def _get_generation_recommendations(estimations):
-    """Génère des recommandations basées sur les estimations."""
-    recommendations = []
-    
-    complexity = estimations['complexity_level']
-    
-    if complexity == 'low':
-        recommendations.append("Configuration idéale pour les tests et le développement")
-    elif complexity == 'medium':
-        recommendations.append("Configuration appropriée pour l'entraînement de modèles")
-    elif complexity == 'high':
-        recommendations.append("Configuration pour l'analyse de production - temps de génération élevé")
-    else:
-        recommendations.append("Configuration très lourde - considérez réduire la période ou le nombre de bâtiments")
-    
-    if estimations['estimated_time_seconds'] > 300:  # 5 minutes
-        recommendations.append("Temps de génération élevé - considérez l'export direct en fichier")
-    
-    if estimations['estimated_size_mb'] > 100:  # 100MB
-        recommendations.append("Dataset volumineux - format Parquet recommandé pour l'efficacité")
-    
-    return recommendations
-
-
-def _get_generation_warnings(estimations):
-    """Génère des avertissements basés sur les estimations."""
-    warnings = []
-    
-    if estimations['estimated_time_seconds'] > 600:  # 10 minutes
-        warnings.append("Temps de génération très élevé (>10 minutes)")
-    
-    if estimations['estimated_size_mb'] > 500:  # 500MB
-        warnings.append("Dataset très volumineux (>500MB)")
-    
-    if estimations['total_observations'] > 5000000:  # 5M observations
-        warnings.append("Nombre d'observations très élevé - peut impacter les performances")
-    
-    return warnings
 
 
 # Export du blueprint

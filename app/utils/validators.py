@@ -58,6 +58,90 @@ def validate_generation_request(data: Dict[str, Any], config: Any) -> Dict[str, 
         date_validation = validate_date_range(start_date, end_date, config)
         if not date_validation['valid']:
             validation_result['errors'].extend(date_validation['errors'])
+            validation_result['warnings'].extend(date_validation['warnings'])
+    
+    # Validation de la fréquence
+    frequency = data.get('frequency', 'D')
+    freq_validation = validate_frequency(frequency, config)
+    if not freq_validation['valid']:
+        validation_result['errors'].extend(freq_validation['errors'])
+    
+    # Validation du filtre de localisation
+    location_filter = data.get('location_filter')
+    if location_filter:
+        filter_validation = validate_location_filter(location_filter)
+        if not filter_validation['valid']:
+            validation_result['errors'].extend(filter_validation['errors'])
+    
+    # Validation des types de bâtiments
+    building_types = data.get('building_types')
+    if building_types:
+        types_validation = validate_building_types(building_types)
+        if not types_validation['valid']:
+            validation_result['errors'].extend(types_validation['errors'])
+    
+    # Validation du format d'export
+    export_format = data.get('export_format', 'parquet')
+    format_validation = validate_export_format(export_format, config)
+    if not format_validation['valid']:
+        validation_result['errors'].extend(format_validation['errors'])
+    
+    # Déterminer la validité globale
+    validation_result['valid'] = len(validation_result['errors']) == 0
+    
+    return validation_result
+
+
+def validate_osm_request(data: Dict[str, Any], config: Any) -> Dict[str, Any]:
+    """
+    Valide une requête de génération basée sur OSM.
+    
+    Args:
+        data: Données de la requête OSM
+        config: Configuration de l'application
+        
+    Returns:
+        Résultat de validation
+    """
+    validation_result = {
+        'valid': True,
+        'errors': [],
+        'warnings': []
+    }
+    
+    # Au moins un filtre de localisation requis
+    bbox = data.get('bbox')
+    city = data.get('city')
+    coordinates = data.get('coordinates')
+    
+    if not any([bbox, city, coordinates]):
+        validation_result['errors'].append("bbox, city ou coordinates requis")
+        return validation_result
+    
+    # Validation de la bbox si fournie
+    if bbox:
+        bbox_validation = validate_bbox(bbox)
+        validation_result['errors'].extend(bbox_validation['errors'])
+        validation_result['warnings'].extend(bbox_validation['warnings'])
+    
+    # Validation des coordonnées si fournies
+    if coordinates:
+        coords_validation = validate_coordinates_dict(coordinates)
+        validation_result['errors'].extend(coords_validation['errors'])
+        validation_result['warnings'].extend(coords_validation['warnings'])
+    
+    # Validation de la ville si fournie
+    if city:
+        city_validation = validate_city_name(city)
+        validation_result['errors'].extend(city_validation['errors'])
+        validation_result['warnings'].extend(city_validation['warnings'])
+    
+    # Validation des paramètres OSM
+    max_buildings = data.get('max_buildings', 1000)
+    if not isinstance(max_buildings, int) or max_buildings <= 0:
+        validation_result['errors'].append("max_buildings doit être un entier positif")
+    elif max_buildings > 50000:
+        validation_result['warnings'].append("max_buildings très élevé - requête OSM longue")
     
     validation_result['valid'] = len(validation_result['errors']) == 0
     return validation_result
@@ -122,6 +206,7 @@ def validate_date_range(start_date: str, end_date: str, config: Any) -> Dict[str
     if start_dt > now + timedelta(days=365):
         validation_result['warnings'].append("Date de début très dans le futur")
     
+    validation_result['valid'] = len(validation_result['errors']) == 0
     return validation_result
 
 
@@ -146,21 +231,19 @@ def validate_frequency(frequency: str, config: Any) -> Dict[str, Any]:
         validation_result['errors'].append("frequency requis")
         return validation_result
     
-    # Fréquences supportées
-    if hasattr(config, 'SUPPORTED_FREQUENCIES'):
-        supported = config.SUPPORTED_FREQUENCIES
-    else:
-        supported = ['H', 'D', 'W', 'M', '30T', '15T']
+    # Fréquences supportées par défaut
+    supported_frequencies = getattr(config, 'SUPPORTED_FREQUENCIES', ['H', 'D', 'W', 'M', '30T', '15T'])
     
-    if frequency not in supported:
-        validation_result['errors'].append(f"Fréquence supportées: {supported}")
+    if frequency not in supported_frequencies:
+        validation_result['errors'].append(f"Fréquence non supportée. Supportées: {supported_frequencies}")
     
-    # Avertissements pour des fréquences particulières
-    if frequency in ['15T', '5T', '1T']:
-        validation_result['warnings'].append("Fréquence très fine - dataset volumineux")
+    # Avertissements selon la fréquence
+    if frequency in ['T', '5T', '10T']:
+        validation_result['warnings'].append("Fréquence très élevée - dataset volumineux")
     elif frequency in ['M', 'Q', 'Y']:
-        validation_result['warnings'].append("Fréquence très large - peu de points de données")
+        validation_result['warnings'].append("Fréquence très faible - peu de points de données")
     
+    validation_result['valid'] = len(validation_result['errors']) == 0
     return validation_result
 
 
@@ -169,8 +252,8 @@ def validate_coordinates(latitude: float, longitude: float) -> Dict[str, Any]:
     Valide des coordonnées géographiques.
     
     Args:
-        latitude: Latitude (-90 à 90)
-        longitude: Longitude (-180 à 180)
+        latitude: Latitude en degrés décimaux
+        longitude: Longitude en degrés décimaux
         
     Returns:
         Résultat de validation
@@ -181,24 +264,22 @@ def validate_coordinates(latitude: float, longitude: float) -> Dict[str, Any]:
         'warnings': []
     }
     
-    # Validation des types
-    if not isinstance(latitude, (int, float)):
-        validation_result['errors'].append("latitude doit être un nombre")
-    elif not (-90 <= latitude <= 90):
-        validation_result['errors'].append("latitude doit être entre -90 et 90")
+    # Validation des plages de coordonnées
+    if not (-90 <= latitude <= 90):
+        validation_result['errors'].append("Latitude doit être entre -90 et 90")
     
-    if not isinstance(longitude, (int, float)):
-        validation_result['errors'].append("longitude doit être un nombre")
-    elif not (-180 <= longitude <= 180):
-        validation_result['errors'].append("longitude doit être entre -180 et 180")
+    if not (-180 <= longitude <= 180):
+        validation_result['errors'].append("Longitude doit être entre -180 et 180")
     
-    # Validation spécifique Malaysia
-    if validation_result['valid']:
-        if not (0.5 <= latitude <= 7.5):
-            validation_result['warnings'].append("Latitude hors Malaysia (0.5° à 7.5°)")
-        
-        if not (99.0 <= longitude <= 120.0):
-            validation_result['warnings'].append("Longitude hors Malaysia (99° à 120°)")
+    # Vérifications spécifiques à la Malaysia
+    malaysia_lat_range = (0.5, 7.5)
+    malaysia_lon_range = (99.0, 120.0)
+    
+    if not (malaysia_lat_range[0] <= latitude <= malaysia_lat_range[1]):
+        validation_result['warnings'].append("Latitude hors Malaysia")
+    
+    if not (malaysia_lon_range[0] <= longitude <= malaysia_lon_range[1]):
+        validation_result['warnings'].append("Longitude hors Malaysia")
     
     validation_result['valid'] = len(validation_result['errors']) == 0
     return validation_result
@@ -232,6 +313,7 @@ def validate_coordinates_dict(coordinates: Dict) -> Dict[str, Any]:
         validation_result['errors'].append("coordinates.lon requis")
     
     if validation_result['errors']:
+        validation_result['valid'] = False
         return validation_result
     
     # Valider les coordonnées
@@ -333,34 +415,31 @@ def validate_city_name(city: str) -> Dict[str, Any]:
         'warnings': []
     }
     
-    if not city:
+    if not city or not isinstance(city, str):
         validation_result['errors'].append("Nom de ville requis")
         return validation_result
     
-    if not isinstance(city, str):
-        validation_result['errors'].append("Nom de ville doit être une chaîne")
-        return validation_result
+    city = city.strip()
     
-    # Validation de base du format
-    if len(city.strip()) < 2:
+    if len(city) < 2:
         validation_result['errors'].append("Nom de ville trop court")
     elif len(city) > 100:
         validation_result['errors'].append("Nom de ville trop long")
     
-    # Validation des caractères (lettres, espaces, tirets, apostrophes)
-    if not re.match(r"^[a-zA-Z\s\-']+$", city):
-        validation_result['errors'].append("Nom de ville contient des caractères invalides")
+    # Vérifier les caractères valides
+    if not re.match(r'^[a-zA-Z\s\-\'\.]+$', city):
+        validation_result['warnings'].append("Nom de ville contient des caractères inhabituels")
     
-    # Villes malaysiennes connues
-    known_malaysia_cities = [
+    # Villes connues de Malaysia (échantillon)
+    malaysia_cities = [
         'Kuala Lumpur', 'George Town', 'Ipoh', 'Shah Alam', 'Petaling Jaya',
-        'Johor Bahru', 'Kota Kinabalu', 'Kuching', 'Malacca', 'Alor Setar',
-        'Seremban', 'Kuantan', 'Kuala Terengganu', 'Kota Bharu', 'Kangar',
-        'Sandakan', 'Tawau', 'Miri', 'Sibu', 'Putrajaya', 'Labuan'
+        'Subang Jaya', 'Kajang', 'Klang', 'Johor Bahru', 'Seremban',
+        'Malacca', 'Alor Setar', 'Kota Bharu', 'Kuantan', 'Kuching',
+        'Kota Kinabalu', 'Sandakan', 'Tawau', 'Miri'
     ]
     
-    if city not in known_malaysia_cities:
-        validation_result['warnings'].append("Ville non reconnue dans la base Malaysia")
+    if city not in malaysia_cities:
+        validation_result['warnings'].append("Ville non reconnue - vérifiez l'orthographe")
     
     validation_result['valid'] = len(validation_result['errors']) == 0
     return validation_result
@@ -391,17 +470,13 @@ def validate_building_types(building_types: List[str]) -> Dict[str, Any]:
         return validation_result
     
     # Types supportés
-    supported_types = ['residential', 'commercial', 'industrial', 'public']
+    supported_types = ['residential', 'commercial', 'industrial', 'public', 'mixed']
     
     for building_type in building_types:
         if not isinstance(building_type, str):
             validation_result['errors'].append("Types de bâtiments doivent être des chaînes")
         elif building_type not in supported_types:
-            validation_result['errors'].append(f"Type '{building_type}' non supporté. Types supportés: {supported_types}")
-    
-    # Vérifier les doublons
-    if len(building_types) != len(set(building_types)):
-        validation_result['warnings'].append("Types de bâtiments dupliqués détectés")
+            validation_result['errors'].append(f"Type non supporté: {building_type}. Supportés: {supported_types}")
     
     validation_result['valid'] = len(validation_result['errors']) == 0
     return validation_result
@@ -427,36 +502,30 @@ def validate_location_filter(location_filter: Dict) -> Dict[str, Any]:
         validation_result['errors'].append("location_filter doit être un objet")
         return validation_result
     
-    # Clés valides pour le filtre
-    valid_keys = ['state', 'region', 'type', 'urban_level', 'min_population', 'city']
-    
-    for key in location_filter.keys():
-        if key not in valid_keys:
-            validation_result['warnings'].append(f"Clé de filtre '{key}' non reconnue. Clés valides: {valid_keys}")
-    
-    # Validation des valeurs spécifiques
+    # Validation des champs optionnels
     if 'state' in location_filter:
         state = location_filter['state']
         malaysia_states = [
-            'Johor', 'Kedah', 'Kelantan', 'Malacca', 'Negeri Sembilan', 'Pahang',
-            'Penang', 'Perak', 'Perlis', 'Selangor', 'Terengganu', 'Sabah', 'Sarawak',
-            'Federal Territory'
+            'Johor', 'Kedah', 'Kelantan', 'Malacca', 'Negeri Sembilan',
+            'Pahang', 'Penang', 'Perak', 'Perlis', 'Selangor',
+            'Terengganu', 'Sabah', 'Sarawak', 'Federal Territory'
         ]
         if state not in malaysia_states:
-            validation_result['warnings'].append(f"État '{state}' non reconnu en Malaysia")
+            validation_result['warnings'].append(f"État non reconnu: {state}")
     
-    if 'min_population' in location_filter:
-        min_pop = location_filter['min_population']
-        if not isinstance(min_pop, int) or min_pop < 0:
-            validation_result['errors'].append("min_population doit être un entier positif")
-        elif min_pop > 5000000:
-            validation_result['warnings'].append("min_population très élevé - peu de villes correspondantes")
+    if 'region' in location_filter:
+        region = location_filter['region']
+        malaysia_regions = [
+            'Northern Peninsula', 'Central Peninsula', 'Southern Peninsula',
+            'East Coast', 'Sabah', 'Sarawak'
+        ]
+        if region not in malaysia_regions:
+            validation_result['warnings'].append(f"Région non reconnue: {region}")
     
-    if 'urban_level' in location_filter:
-        urban_level = location_filter['urban_level']
-        valid_levels = ['metropolitan', 'urban', 'small_town', 'rural']
-        if urban_level not in valid_levels:
-            validation_result['errors'].append(f"urban_level doit être dans {valid_levels}")
+    if 'coordinates' in location_filter:
+        coords_validation = validate_coordinates_dict(location_filter['coordinates'])
+        validation_result['errors'].extend(coords_validation['errors'])
+        validation_result['warnings'].extend(coords_validation['warnings'])
     
     validation_result['valid'] = len(validation_result['errors']) == 0
     return validation_result
@@ -484,30 +553,27 @@ def validate_export_format(export_format: str, config: Any) -> Dict[str, Any]:
         return validation_result
     
     # Formats supportés
-    if hasattr(config, 'SUPPORTED_EXPORT_FORMATS'):
-        supported = config.SUPPORTED_EXPORT_FORMATS
-    else:
-        supported = ['parquet', 'csv', 'json', 'excel']
+    supported_formats = getattr(config, 'SUPPORTED_EXPORT_FORMATS', ['parquet', 'csv', 'json', 'excel'])
     
-    if export_format not in supported:
-        validation_result['errors'].append(f"Formats supportés: {supported}")
+    if export_format not in supported_formats:
+        validation_result['errors'].append(f"Format non supporté: {export_format}. Supportés: {supported_formats}")
     
-    # Avertissements pour certains formats
+    # Avertissements selon le format
     if export_format == 'json':
-        validation_result['warnings'].append("Format JSON peut être volumineux pour de gros datasets")
+        validation_result['warnings'].append("Format JSON volumineux pour grandes datasets")
     elif export_format == 'excel':
-        validation_result['warnings'].append("Format Excel limité à 1M lignes par feuille")
+        validation_result['warnings'].append("Format Excel limité à ~1M lignes")
     
     validation_result['valid'] = len(validation_result['errors']) == 0
     return validation_result
 
 
-def validate_osm_data(osm_data: Dict) -> Dict[str, Any]:
+def validate_osm_data(buildings_data: List[Dict]) -> Dict[str, Any]:
     """
-    Valide des données OSM retournées par l'API Overpass.
+    Valide des données de bâtiments provenant d'OSM.
     
     Args:
-        osm_data: Données brutes OSM
+        buildings_data: Liste des bâtiments OSM
         
     Returns:
         Résultat de validation
@@ -515,51 +581,79 @@ def validate_osm_data(osm_data: Dict) -> Dict[str, Any]:
     validation_result = {
         'valid': True,
         'errors': [],
-        'warnings': []
+        'warnings': [],
+        'statistics': {}
     }
     
-    if not isinstance(osm_data, dict):
-        validation_result['errors'].append("Données OSM doivent être un objet JSON")
+    if not isinstance(buildings_data, list):
+        validation_result['errors'].append("Données de bâtiments doivent être une liste")
         return validation_result
     
-    # Vérifier la structure de base
-    if 'elements' not in osm_data:
-        validation_result['errors'].append("Clé 'elements' manquante dans les données OSM")
+    if not buildings_data:
+        validation_result['warnings'].append("Liste de bâtiments vide")
         return validation_result
     
-    elements = osm_data['elements']
-    if not isinstance(elements, list):
-        validation_result['errors'].append("'elements' doit être une liste")
-        return validation_result
+    # Validation des bâtiments individuels
+    valid_buildings = 0
+    coordinates_list = []
+    building_types = []
     
-    # Validation des éléments individuels
-    valid_elements = 0
-    for i, element in enumerate(elements):
-        if not isinstance(element, dict):
-            validation_result['warnings'].append(f"Élément {i} invalide (pas un objet)")
+    for i, building in enumerate(buildings_data):
+        if not isinstance(building, dict):
+            validation_result['warnings'].append(f"Bâtiment {i} invalide (pas un objet)")
             continue
         
         # Vérifier les champs requis
-        if 'id' not in element:
-            validation_result['warnings'].append(f"Élément {i} sans ID")
+        required_fields = ['id', 'lat', 'lon']
+        missing_fields = [field for field in required_fields if field not in building]
+        
+        if missing_fields:
+            validation_result['warnings'].append(f"Bâtiment {i} - champs manquants: {missing_fields}")
             continue
         
-        if 'type' not in element:
-            validation_result['warnings'].append(f"Élément {i} sans type")
+        # Valider les coordonnées
+        try:
+            lat, lon = float(building['lat']), float(building['lon'])
+            coords_validation = validate_coordinates(lat, lon)
+            
+            if coords_validation['valid']:
+                coordinates_list.append((lat, lon))
+                valid_buildings += 1
+            else:
+                validation_result['warnings'].append(f"Bâtiment {i} - coordonnées invalides")
+        except (ValueError, TypeError):
+            validation_result['warnings'].append(f"Bâtiment {i} - coordonnées non numériques")
             continue
         
-        # Vérifier la géométrie pour les ways et relations
-        if element['type'] in ['way', 'relation']:
-            if 'geometry' not in element or not element['geometry']:
-                validation_result['warnings'].append(f"Élément {i} sans géométrie")
-                continue
-        
-        valid_elements += 1
+        # Collecter les types de bâtiments
+        if 'building' in building:
+            building_types.append(building['building'])
     
-    if valid_elements == 0 and len(elements) > 0:
-        validation_result['errors'].append("Aucun élément OSM valide trouvé")
-    elif valid_elements < len(elements) * 0.5:
-        validation_result['warnings'].append("Moins de 50% des éléments OSM sont valides")
+    # Statistiques de validation
+    total_buildings = len(buildings_data)
+    validation_rate = (valid_buildings / total_buildings * 100) if total_buildings > 0 else 0
+    
+    validation_result['statistics'] = {
+        'total_buildings': total_buildings,
+        'valid_buildings': valid_buildings,
+        'validation_rate': round(validation_rate, 1),
+        'unique_building_types': len(set(building_types)) if building_types else 0
+    }
+    
+    if coordinates_list:
+        lats, lons = zip(*coordinates_list)
+        validation_result['statistics']['coordinate_bounds'] = {
+            'north': max(lats),
+            'south': min(lats),
+            'east': max(lons),
+            'west': min(lons)
+        }
+    
+    # Déterminer la validité globale
+    if validation_rate < 50:
+        validation_result['errors'].append("Moins de 50% des bâtiments sont valides")
+    elif validation_rate < 80:
+        validation_result['warnings'].append("Moins de 80% des bâtiments sont valides")
     
     validation_result['valid'] = len(validation_result['errors']) == 0
     return validation_result
@@ -684,110 +778,3 @@ __all__ = [
     'validate_osm_data',
     'validate_timeseries_data'
 ]
-    
-    date_validation = validate_date_range(start_date, end_date, config)
-    if not date_validation['valid']:
-        validation_result['errors'].extend(date_validation['errors'])
-        validation_result['warnings'].extend(date_validation['warnings'])
-    
-    # Validation de la fréquence
-    frequency = data.get('frequency', 'D')
-    freq_validation = validate_frequency(frequency, config)
-    if not freq_validation['valid']:
-        validation_result['errors'].extend(freq_validation['errors'])
-    
-    # Validation du filtre de localisation
-    location_filter = data.get('location_filter')
-    if location_filter:
-        filter_validation = validate_location_filter(location_filter)
-        if not filter_validation['valid']:
-            validation_result['errors'].extend(filter_validation['errors'])
-    
-    # Validation des types de bâtiments
-    building_types = data.get('building_types')
-    if building_types:
-        types_validation = validate_building_types(building_types)
-        if not types_validation['valid']:
-            validation_result['errors'].extend(types_validation['errors'])
-    
-    # Validation du format d'export
-    export_format = data.get('export_format', 'parquet')
-    format_validation = validate_export_format(export_format, config)
-    if not format_validation['valid']:
-        validation_result['errors'].extend(format_validation['errors'])
-    
-    # Déterminer la validité globale
-    validation_result['valid'] = len(validation_result['errors']) == 0
-    
-    return validation_result
-
-
-def validate_osm_request(data: Dict[str, Any], config: Any) -> Dict[str, Any]:
-    """
-    Valide une requête de génération basée sur OSM.
-    
-    Args:
-        data: Données de la requête OSM
-        config: Configuration de l'application
-        
-    Returns:
-        Résultat de validation
-    """
-    validation_result = {
-        'valid': True,
-        'errors': [],
-        'warnings': []
-    }
-    
-    # Au moins un paramètre de localisation requis
-    has_city = 'city' in data and data['city']
-    has_bbox = 'bbox' in data and data['bbox']
-    has_coordinates = 'coordinates' in data and data['coordinates']
-    
-    if not (has_city or has_bbox or has_coordinates):
-        validation_result['errors'].append("Paramètre de localisation requis (city, bbox, ou coordinates)")
-    
-    # Validation de la ville
-    if has_city:
-        city_validation = validate_city_name(data['city'])
-        if not city_validation['valid']:
-            validation_result['errors'].extend(city_validation['errors'])
-    
-    # Validation de la bbox
-    if has_bbox:
-        bbox_validation = validate_bbox(data['bbox'])
-        if not bbox_validation['valid']:
-            validation_result['errors'].extend(bbox_validation['errors'])
-    
-    # Validation des coordonnées
-    if has_coordinates:
-        coords_validation = validate_coordinates_dict(data['coordinates'])
-        if not coords_validation['valid']:
-            validation_result['errors'].extend(coords_validation['errors'])
-    
-    # Validation de la limite
-    limit = data.get('limit')
-    if limit is not None:
-        if not isinstance(limit, int) or limit <= 0:
-            validation_result['errors'].append("limit doit être un entier positif")
-        elif limit > 10000:
-            validation_result['warnings'].append("Limite très élevée - requête OSM longue")
-    
-    # Validation du rayon (pour coordinates)
-    radius = data.get('radius')
-    if radius is not None:
-        if not isinstance(radius, (int, float)) or radius <= 0:
-            validation_result['errors'].append("radius doit être un nombre positif")
-        elif radius > 50000:  # 50km
-            validation_result['warnings'].append("Rayon très large - beaucoup de bâtiments possibles")
-    
-    # Validation des types de bâtiments
-    building_types = data.get('building_types')
-    if building_types:
-        types_validation = validate_building_types(building_types)
-        if not types_validation['valid']:
-            validation_result['errors'].extend(types_validation['errors'])
-    
-    # Validation des dates (optionnelles pour OSM)
-    start_date = data.get('start_date')
-    end_date = data.get('end_date

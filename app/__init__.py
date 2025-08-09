@@ -38,10 +38,36 @@ def create_app(config_name=None):
         Flask: Instance de l'application configurée
     """
     
-    # Créer l'instance Flask
+    # ✅ CORRECTION: Calculer les chemins absolus pour éviter les problèmes
+    import os
+    from pathlib import Path
+    
+    # Obtenir le répertoire racine du projet
+    current_dir = Path(__file__).parent.absolute()  # Dossier app/
+    root_dir = current_dir.parent  # Dossier racine du projet
+    
+    # Vérifier les dossiers templates et static
+    templates_path = root_dir / 'templates'
+    static_path = root_dir / 'static'
+    
+    # Si les dossiers n'existent pas dans la racine, chercher dans app/
+    if not templates_path.exists():
+        templates_path = current_dir / 'templates'
+    if not static_path.exists():
+        static_path = current_dir / 'static'
+    
+    # Créer les dossiers s'ils n'existent pas
+    templates_path.mkdir(exist_ok=True)
+    static_path.mkdir(exist_ok=True)
+    
+    print(f"🔧 Chemins Flask:")
+    print(f"   • Templates: {templates_path}")
+    print(f"   • Static: {static_path}")
+    
+    # Créer l'instance Flask avec les chemins absolus
     app = Flask(__name__, 
-                template_folder='../templates',
-                static_folder='../static')
+                template_folder=str(templates_path),
+                static_folder=str(static_path))
     
     # Déterminer la configuration à utiliser
     if config_name is None:

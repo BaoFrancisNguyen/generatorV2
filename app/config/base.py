@@ -180,10 +180,13 @@ class ProductionConfig(Config):
     DEBUG = False
     TESTING = False
     
-    # Sécurité renforcée
-    SECRET_KEY = os.environ.get('SECRET_KEY')
-    if not SECRET_KEY:
-        raise ValueError("SECRET_KEY doit être définie en production")
+    # Sécurité renforcée - Vérification reportée à l'initialisation
+    @property
+    def SECRET_KEY(self):
+        secret_key = os.environ.get('SECRET_KEY')
+        if not secret_key:
+            raise ValueError("SECRET_KEY doit être définie en production")
+        return secret_key
     
     # Performance optimisée
     CACHE_TYPE = 'redis'
@@ -275,43 +278,49 @@ def validate_config(config_instance):
     Valide les paramètres de configuration.
     
     Args:
-        config_instance: Instance de configuration
+        config_instance: Instance de configuration Flask (app.config)
         
     Raises:
         ValueError: Si la configuration est invalide
     """
+    # ✅ CORRECTION: Utiliser des clés de dictionnaire au lieu d'attributs
+    # car Flask transfère les attributs de classe vers un dictionnaire
+    
     # Vérifier les répertoires obligatoires
     required_dirs = [
-        config_instance.GENERATED_DATA_DIR,
-        config_instance.CACHE_DIR,
-        config_instance.LOG_DIR
+        config_instance.get('GENERATED_DATA_DIR'),
+        config_instance.get('CACHE_DIR'), 
+        config_instance.get('LOG_DIR')
     ]
     
     for directory in required_dirs:
+        if directory is None:
+            continue  # Ignorer si le répertoire n'est pas configuré
+            
         try:
             os.makedirs(directory, exist_ok=True)
         except Exception as e:
             raise ValueError(f"Impossible de créer le répertoire {directory}: {e}")
     
-    # Vérifier les limites logiques
-    if config_instance.MIN_BUILDINGS >= config_instance.MAX_BUILDINGS:
-        raise ValueError("MIN_BUILDINGS doit être inférieur à MAX_BUILDINGS")
+    # Vérifier les limites logiques seulement si elles existent
+    min_buildings = config_instance.get('MIN_BUILDINGS')
+    max_buildings = config_instance.get('MAX_BUILDINGS')
     
-    if config_instance.MIN_PERIOD_DAYS >= config_instance.MAX_PERIOD_DAYS:
-        raise ValueError("MIN_PERIOD_DAYS doit être inférieur à MAX_PERIOD_DAYS")
+    if min_buildings is not None and max_buildings is not None:
+        if min_buildings >= max_buildings:
+            raise ValueError("MIN_BUILDINGS doit être inférieur à MAX_BUILDINGS")
     
-    # Vérifier les fréquences supportées
-    if config_instance.DEFAULT_FREQUENCY not in config_instance.SUPPORTED_FREQUENCIES:
-        raise ValueError(f"DEFAULT_FREQUENCY doit être dans {config_instance.SUPPORTED_FREQUENCIES}")
-
-
-# Export des configurations
-__all__ = [
-    'Config', 
-    'DevelopmentConfig', 
-    'ProductionConfig', 
-    'TestingConfig',
-    'config',
-    'get_config',
-    'validate_config'
-]
+    min_period = config_instance.get('MIN_PERIOD_DAYS')
+    max_period = config_instance.get('MAX_PERIOD_DAYS')
+    
+    if min_period is not None and max_period is not None:
+        if min_period >= max_period:
+            raise ValueError("MIN_PERIOD_DAYS doit être inférieur à MAX_PERIOD_DAYS")
+    
+    # Vérifier les fréquences supportées seulement si elles existent
+    default_freq = config_instance.get('DEFAULT_FREQUENCY')
+    supported_freq = config_instance.get('SUPPORTED_FREQUENCIES')
+    
+    if default_freq is not None and supported_freq is not None:
+        if default_freq not in supported_freq:
+            raise ValueError(f"DEFAULT_FREQUENCY doit être dans {supported_freq}")
