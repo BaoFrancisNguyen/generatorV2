@@ -1,21 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ROUTES OPENSTREETMAP - GÉNÉRATEUR MALAYSIA
+ROUTES OPENSTREETMAP ULTRA-OPTIMISÉES - GÉNÉRATEUR MALAYSIA
 Fichier: app/routes/osm.py
 
-Routes spécialisées pour l'intégration OpenStreetMap:
-récupération de bâtiments, gestion du cache, statistiques OSM.
+Routes optimisées pour récupération exhaustive de bâtiments OSM:
+- Endpoint pour récupération complète Malaysia
+- Download direct des données
+- Monitoring des performances
+- Cache management
 
 Auteur: Équipe Développement
 Date: 2025
-Version: 3.0 - Routes OSM modulaires
+Version: 4.0 - Ultra-optimisé
 """
 
 import logging
+import json
+import asyncio
 from datetime import datetime
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, send_file
 from werkzeug.exceptions import BadRequest, NotFound
+import pandas as pd
+import tempfile
+import gzip
+from pathlib import Path
 
 from app.utils.validators import validate_coordinates, validate_bbox, validate_city_name
 
@@ -24,241 +33,208 @@ osm_bp = Blueprint('osm', __name__)
 logger = logging.getLogger(__name__)
 
 
-@osm_bp.route('/buildings', methods=['GET'])
-def get_buildings():
+@osm_bp.route('/buildings/all', methods=['GET'])
+def get_all_buildings():
     """
-    Récupère des bâtiments depuis OpenStreetMap.
+    🚀 ENDPOINT PRINCIPAL: Récupère TOUS les bâtiments de Malaysia.
     
     Query Parameters:
-        city (str): Nom de la ville malaysienne
-        bbox (str): Bounding box "sud,ouest,nord,est"
-        lat (float): Latitude (avec lon et radius)
-        lon (float): Longitude (avec lat et radius)
-        radius (int): Rayon en mètres (défaut: 1000)
-        building_types (str): Types séparés par virgules
-        limit (int): Limite du nombre de bâtiments
-        format (str): Format de réponse ('geojson' ou 'simple')
+        format (str): Format de réponse ('json', 'geojson', 'csv', 'parquet')
+        download (bool): Télécharger directement le fichier
+        sample (int): Nombre d'échantillons pour aperçu (défaut: tous)
+        include_geometry (bool): Inclure la géométrie complète
+        compress (bool): Compresser la réponse
     
     Returns:
-        JSON avec les bâtiments OSM récupérés
+        JSON avec tous les bâtiments ou fichier en téléchargement
     """
-    logger.info("🏢 Demande de bâtiments OSM")
+    logger.info("🇲🇾 Demande de récupération EXHAUSTIVE des bâtiments Malaysia")
     
     try:
-        # Paramètres de requête
-        city = request.args.get('city')
-        bbox_str = request.args.get('bbox')
-        lat = request.args.get('lat', type=float)
-        lon = request.args.get('lon', type=float)
-        radius = request.args.get('radius', type=int, default=1000)
-        building_types_str = request.args.get('building_types')
-        limit = request.args.get('limit', type=int)
-        response_format = request.args.get('format', 'simple')
+        # Paramètres
+        response_format = request.args.get('format', 'json').lower()
+        download = request.args.get('download', 'false').lower() == 'true'
+        sample_size = request.args.get('sample', type=int)
+        include_geometry = request.args.get('include_geometry', 'false').lower() == 'true'
+        compress = request.args.get('compress', 'false').lower() == 'true'
         
-        # Validation des paramètres
-        if not any([city, bbox_str, (lat and lon)]):
-            raise BadRequest("Paramètre de localisation requis: city, bbox, ou lat+lon")
-        
-        # Préparer les types de bâtiments
-        building_types = None
-        if building_types_str:
-            building_types = [bt.strip() for bt in building_types_str.split(',')]
+        # Validation du format
+        valid_formats = ['json', 'geojson', 'csv', 'parquet', 'xlsx']
+        if response_format not in valid_formats:
+            raise BadRequest(f"Format invalide. Formats supportés: {', '.join(valid_formats)}")
         
         osm_service = current_app.osm_service
-        buildings = []
-        query_info = {}
         
-        # Récupération selon le type de requête
-        if city:
-            # Validation de la ville
-            city_validation = validate_city_name(city)
-            if not city_validation['valid']:
-                raise BadRequest(f"Ville invalide: {city_validation['errors']}")
-            
-            logger.info(f"🏙️ Recherche de bâtiments à {city}")
-            buildings = osm_service.get_buildings_for_city(city, limit)
-            query_info = {
-                'type': 'city',
-                'city': city,
-                'limit': limit
-            }
+        # 🚀 RÉCUPÉRATION EXHAUSTIVE
+        logger.info("⚡ Début récupération exhaustive...")
+        start_time = datetime.now()
         
-        elif bbox_str:
-            # Parser et valider la bbox
-            try:
-                bbox_parts = [float(x.strip()) for x in bbox_str.split(',')]
-                if len(bbox_parts) != 4:
-                    raise ValueError("4 valeurs requises")
-                bbox = tuple(bbox_parts)
-            except ValueError:
-                raise BadRequest("Format bbox invalide. Utilisez: sud,ouest,nord,est")
-            
-            bbox_validation = validate_bbox(list(bbox))
-            if not bbox_validation['valid']:
-                raise BadRequest(f"Bbox invalide: {bbox_validation['errors']}")
-            
-            logger.info(f"📦 Recherche de bâtiments dans bbox: {bbox}")
-            buildings = osm_service.get_buildings_in_bbox(bbox, building_types)
-            query_info = {
-                'type': 'bbox',
-                'bbox': bbox,
-                'building_types': building_types
-            }
+        buildings = osm_service.get_all_buildings_malaysia()
         
-        elif lat and lon:
-            # Validation des coordonnées
-            coords_validation = validate_coordinates(lat, lon)
-            if not coords_validation['valid']:
-                raise BadRequest(f"Coordonnées invalides: {coords_validation['errors']}")
-            
-            logger.info(f"📍 Recherche de bâtiments autour de ({lat}, {lon})")
-            buildings = osm_service.get_buildings_around_point(lat, lon, radius, building_types)
-            query_info = {
-                'type': 'around',
-                'coordinates': {'lat': lat, 'lon': lon},
-                'radius': radius,
-                'building_types': building_types
-            }
+        fetch_time = (datetime.now() - start_time).total_seconds()
+        logger.info(f"✅ Récupération terminée: {len(buildings)} bâtiments en {fetch_time:.1f}s")
         
-        # Appliquer la limite si spécifiée et pas déjà appliquée
-        if limit and len(buildings) > limit:
-            buildings = buildings[:limit]
-            logger.info(f"✂️ Limitation appliquée: {limit} bâtiments retenus")
-        
-        # Formater la réponse selon le format demandé
-        if response_format == 'geojson':
-            formatted_buildings = _format_buildings_as_geojson(buildings)
-        else:  # simple
-            formatted_buildings = _format_buildings_simple(buildings)
+        # Échantillonnage si demandé
+        if sample_size and sample_size < len(buildings):
+            buildings = buildings[:sample_size]
+            logger.info(f"📊 Échantillon réduit à {len(buildings)} bâtiments")
         
         # Statistiques
-        building_type_counts = {}
-        for building in buildings:
-            building_type = building.get('building_type', 'unknown')
-            building_type_counts[building_type] = building_type_counts.get(building_type, 0) + 1
+        stats = _calculate_building_statistics(buildings)
+        stats['fetch_time_seconds'] = round(fetch_time, 2)
+        stats['osm_stats'] = osm_service.get_stats()
         
-        response = {
+        # Génération de la réponse selon le format
+        if download or response_format != 'json':
+            # Génération de fichier pour téléchargement
+            file_path, filename = _generate_download_file(
+                buildings, 
+                response_format, 
+                include_geometry, 
+                compress
+            )
+            
+            if download:
+                logger.info(f"📥 Téléchargement direct: {filename}")
+                return send_file(
+                    file_path,
+                    as_attachment=True,
+                    download_name=filename,
+                    mimetype=_get_mimetype(response_format, compress)
+                )
+            else:
+                # Retourner les informations du fichier généré
+                file_size = Path(file_path).stat().st_size
+                return jsonify({
+                    'success': True,
+                    'buildings_count': len(buildings),
+                    'statistics': stats,
+                    'file_info': {
+                        'filename': filename,
+                        'format': response_format,
+                        'size_bytes': file_size,
+                        'size_mb': round(file_size / (1024 * 1024), 2),
+                        'compressed': compress,
+                        'download_url': f'/osm/download/{filename}'
+                    }
+                })
+        else:
+            # Réponse JSON directe
+            return jsonify({
+                'success': True,
+                'buildings_count': len(buildings),
+                'statistics': stats,
+                'buildings': buildings,
+                'meta': {
+                    'generated_at': datetime.now().isoformat(),
+                    'total_fetch_time_seconds': fetch_time,
+                    'includes_geometry': include_geometry,
+                    'coverage': 'complete_malaysia'
+                }
+            })
+        
+    except Exception as e:
+        logger.error(f"❌ Erreur récupération exhaustive: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Erreur lors de la récupération des bâtiments',
+            'details': str(e)
+        }), 500
+
+
+@osm_bp.route('/buildings/by-state/<state_name>', methods=['GET'])
+def get_buildings_by_state(state_name):
+    """
+    Récupère les bâtiments pour un état spécifique de Malaysia.
+    
+    Path Parameters:
+        state_name (str): Nom de l'état (johor, selangor, etc.)
+    
+    Query Parameters:
+        format (str): Format de réponse
+        download (bool): Télécharger directement
+    """
+    logger.info(f"🏛️ Demande bâtiments pour l'état: {state_name}")
+    
+    try:
+        response_format = request.args.get('format', 'json').lower()
+        download = request.args.get('download', 'false').lower() == 'true'
+        
+        osm_service = current_app.osm_service
+        
+        # Vérifier que l'état existe
+        state_lower = state_name.lower().replace(' ', '_')
+        if state_lower not in osm_service.malaysia_states:
+            available_states = list(osm_service.malaysia_states.keys())
+            raise BadRequest(f"État '{state_name}' non trouvé. États disponibles: {', '.join(available_states)}")
+        
+        # Récupération pour l'état
+        start_time = datetime.now()
+        buildings = osm_service.get_buildings_for_city(state_name)
+        fetch_time = (datetime.now() - start_time).total_seconds()
+        
+        stats = _calculate_building_statistics(buildings)
+        stats['fetch_time_seconds'] = round(fetch_time, 2)
+        stats['state'] = state_name
+        
+        if download or response_format != 'json':
+            file_path, filename = _generate_download_file(buildings, response_format, True, False)
+            
+            if download:
+                return send_file(file_path, as_attachment=True, download_name=filename)
+        
+        return jsonify({
             'success': True,
-            'query_info': query_info,
-            'total_buildings': len(buildings),
-            'buildings': formatted_buildings,
-            'building_type_distribution': building_type_counts,
-            'timestamp': datetime.now().isoformat(),
-            'format': response_format
-        }
-        
-        return jsonify(response)
+            'state': state_name,
+            'buildings_count': len(buildings),
+            'statistics': stats,
+            'buildings': buildings
+        })
         
     except BadRequest as e:
-        logger.warning(f"⚠️ Requête OSM invalide: {e}")
-        return jsonify({
-            'success': False,
-            'error': 'Requête invalide',
-            'details': str(e)
-        }), 400
-    
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
-        logger.error(f"❌ Erreur lors de la récupération des bâtiments OSM: {e}")
+        logger.error(f"❌ Erreur récupération état {state_name}: {e}")
         return jsonify({
             'success': False,
-            'error': 'Erreur lors de la récupération des bâtiments OSM',
+            'error': f'Erreur récupération état {state_name}',
             'details': str(e)
         }), 500
 
 
-@osm_bp.route('/statistics', methods=['GET'])
-def get_osm_statistics():
+@osm_bp.route('/buildings/progress', methods=['GET'])
+def get_progress():
     """
-    Retourne les statistiques du service OSM.
-    
-    Returns:
-        JSON avec les statistiques détaillées
+    Retourne le progrès de la récupération en cours.
+    Utile pour les requêtes longues.
     """
-    logger.info("📊 Demande de statistiques OSM")
-    
     try:
         osm_service = current_app.osm_service
-        stats = osm_service.get_statistics()
+        stats = osm_service.get_stats()
         
-        # Enrichir avec des informations supplémentaires
-        enhanced_stats = {
+        # Calculer le progrès approximatif
+        total_zones = len(osm_service.malaysia_states) + 4  # États + zones supplémentaires
+        progress_percent = min(100, (stats['zones_processed'] / total_zones) * 100)
+        
+        return jsonify({
             'success': True,
-            'timestamp': datetime.now().isoformat(),
-            'service_info': {
-                'overpass_url': stats['configuration']['overpass_url'],
-                'timeout_seconds': stats['configuration']['timeout'],
-                'max_retries': stats['configuration']['max_retries']
+            'progress': {
+                'percent': round(progress_percent, 1),
+                'zones_processed': stats['zones_processed'],
+                'total_zones': total_zones,
+                'buildings_found': stats['total_buildings'],
+                'requests_made': stats['total_requests'],
+                'cache_hits': stats['cache_hits'],
+                'failed_requests': stats['failed_requests']
             },
-            'request_statistics': stats['request_stats'],
-            'cache_statistics': stats['cache_info'],
-            'performance_metrics': {
-                'total_requests': stats['request_stats']['total_requests'],
-                'success_rate': round(
-                    (stats['request_stats']['total_requests'] - stats['request_stats']['failed_requests']) / 
-                    max(1, stats['request_stats']['total_requests']) * 100, 2
-                ) if stats['request_stats']['total_requests'] > 0 else 0,
-                'cache_hit_rate': round(
-                    stats['request_stats']['cache_hits'] / 
-                    max(1, stats['request_stats']['cache_hits'] + stats['request_stats']['cache_misses']) * 100, 2
-                ) if (stats['request_stats']['cache_hits'] + stats['request_stats']['cache_misses']) > 0 else 0
-            }
-        }
-        
-        return jsonify(enhanced_stats)
+            'status': 'in_progress' if progress_percent < 100 else 'completed'
+        })
         
     except Exception as e:
-        logger.error(f"❌ Erreur lors de la récupération des statistiques OSM: {e}")
+        logger.error(f"❌ Erreur récupération progrès: {e}")
         return jsonify({
             'success': False,
-            'error': 'Erreur lors de la récupération des statistiques OSM',
-            'details': str(e)
-        }), 500
-
-
-@osm_bp.route('/cache/clear', methods=['POST'])
-def clear_osm_cache():
-    """
-    Vide le cache OSM.
-    
-    Returns:
-        JSON confirmant la suppression du cache
-    """
-    logger.info("🗑️ Demande de vidage du cache OSM")
-    
-    try:
-        osm_service = current_app.osm_service
-        
-        # Obtenir les statistiques avant suppression
-        stats_before = osm_service.get_statistics()
-        cache_files_before = stats_before['cache_info'].get('files_count', 0)
-        
-        # Vider le cache
-        osm_service.clear_cache()
-        
-        # Obtenir les statistiques après suppression
-        stats_after = osm_service.get_statistics()
-        cache_files_after = stats_after['cache_info'].get('files_count', 0)
-        
-        response = {
-            'success': True,
-            'message': 'Cache OSM vidé avec succès',
-            'cache_info': {
-                'files_removed': cache_files_before - cache_files_after,
-                'files_before': cache_files_before,
-                'files_after': cache_files_after
-            },
-            'timestamp': datetime.now().isoformat()
-        }
-        
-        logger.info(f"✅ Cache OSM vidé: {cache_files_before - cache_files_after} fichiers supprimés")
-        
-        return jsonify(response)
-        
-    except Exception as e:
-        logger.error(f"❌ Erreur lors du vidage du cache OSM: {e}")
-        return jsonify({
-            'success': False,
-            'error': 'Erreur lors du vidage du cache OSM',
+            'error': 'Erreur récupération progrès',
             'details': str(e)
         }), 500
 
@@ -266,371 +242,395 @@ def clear_osm_cache():
 @osm_bp.route('/cache/info', methods=['GET'])
 def get_cache_info():
     """
-    Retourne des informations détaillées sur le cache OSM.
-    
-    Returns:
-        JSON avec les informations du cache
+    Retourne les informations détaillées du cache OSM.
     """
-    logger.info("📋 Demande d'informations sur le cache OSM")
-    
     try:
         osm_service = current_app.osm_service
-        stats = osm_service.get_statistics()
-        cache_info = stats['cache_info']
+        cache_info = osm_service.get_cache_info()
+        stats = osm_service.get_stats()
         
-        # Informations détaillées du cache
-        detailed_cache_info = {
+        # Calculer le taux de cache hit
+        total_requests = stats['cache_hits'] + stats['cache_misses']
+        hit_rate = (stats['cache_hits'] / total_requests * 100) if total_requests > 0 else 0
+        
+        return jsonify({
             'success': True,
-            'cache_enabled': cache_info['enabled'],
-            'cache_directory': cache_info['directory'],
-            'cache_duration_hours': cache_info['duration_hours'],
-            'cache_files_count': cache_info['files_count'],
-            'cache_statistics': {
-                'hits': stats['request_stats']['cache_hits'],
-                'misses': stats['request_stats']['cache_misses'],
-                'hit_rate_percent': round(
-                    stats['request_stats']['cache_hits'] / 
-                    max(1, stats['request_stats']['cache_hits'] + stats['request_stats']['cache_misses']) * 100, 2
-                ) if (stats['request_stats']['cache_hits'] + stats['request_stats']['cache_misses']) > 0 else 0
+            'cache': cache_info,
+            'performance': {
+                'hit_rate_percent': round(hit_rate, 1),
+                'total_requests': total_requests,
+                'cache_hits': stats['cache_hits'],
+                'cache_misses': stats['cache_misses']
             },
-            'recommendations': _get_cache_recommendations(cache_info, stats['request_stats']),
-            'timestamp': datetime.now().isoformat()
-        }
-        
-        return jsonify(detailed_cache_info)
+            'recommendations': _get_cache_recommendations(cache_info, stats)
+        })
         
     except Exception as e:
-        logger.error(f"❌ Erreur lors de la récupération des informations de cache: {e}")
+        logger.error(f"❌ Erreur info cache: {e}")
         return jsonify({
             'success': False,
-            'error': 'Erreur lors de la récupération des informations de cache',
+            'error': 'Erreur récupération info cache',
             'details': str(e)
         }), 500
 
 
-@osm_bp.route('/validate', methods=['POST'])
-def validate_osm_query():
+@osm_bp.route('/cache/clear', methods=['POST'])
+def clear_cache():
     """
-    Valide une requête OSM sans l'exécuter.
-    
-    Body JSON:
-    {
-        "type": "city" | "bbox" | "around",
-        "city": "Kuala Lumpur",  // pour type=city
-        "bbox": [south, west, north, east],  // pour type=bbox
-        "lat": 3.139, "lon": 101.687, "radius": 1000,  // pour type=around
-        "building_types": ["residential", "commercial"],
-        "limit": 1000
-    }
-    
-    Returns:
-        JSON avec les résultats de validation
+    Vide le cache OSM.
     """
-    logger.info("✅ Demande de validation de requête OSM")
-    
     try:
-        if not request.is_json:
-            raise BadRequest("Content-Type application/json requis")
+        osm_service = current_app.osm_service
+        osm_service.clear_cache()
         
-        data = request.get_json()
-        if not data:
-            raise BadRequest("Corps de requête JSON vide")
-        
-        # Validation de la requête OSM
-        from app.utils.validators import validate_osm_request
-        validation_result = validate_osm_request(data, current_app.config)
-        
-        # Ajouter des estimations si la validation est réussie
-        if validation_result['valid']:
-            # Estimer le nombre de bâtiments potentiels
-            estimated_buildings = _estimate_buildings_count(data)
-            validation_result['estimations'] = {
-                'estimated_buildings': estimated_buildings,
-                'estimated_request_time_seconds': _estimate_request_time(estimated_buildings),
-                'complexity_level': _assess_query_complexity(data, estimated_buildings)
-            }
-        
-        response = {
+        return jsonify({
             'success': True,
-            'validation_results': validation_result,
-            'timestamp': datetime.now().isoformat()
-        }
+            'message': 'Cache OSM vidé avec succès'
+        })
         
-        return jsonify(response)
-        
-    except BadRequest as e:
-        logger.warning(f"⚠️ Requête de validation OSM invalide: {e}")
-        return jsonify({
-            'success': False,
-            'error': 'Requête de validation invalide',
-            'details': str(e)
-        }), 400
-    
     except Exception as e:
-        logger.error(f"❌ Erreur lors de la validation OSM: {e}")
+        logger.error(f"❌ Erreur vidage cache: {e}")
         return jsonify({
             'success': False,
-            'error': 'Erreur lors de la validation OSM',
+            'error': 'Erreur lors du vidage du cache',
             'details': str(e)
         }), 500
 
 
-# === FONCTIONS UTILITAIRES PRIVÉES ===
-
-def _format_buildings_as_geojson(buildings):
+@osm_bp.route('/download/<filename>', methods=['GET'])
+def download_file(filename):
     """
-    Formate les bâtiments au format GeoJSON.
-    
-    Args:
-        buildings: Liste des bâtiments OSM
+    Télécharge un fichier généré précédemment.
+    """
+    try:
+        # Répertoire de téléchargement temporaire
+        temp_dir = Path(tempfile.gettempdir()) / 'osm_downloads'
+        file_path = temp_dir / filename
         
-    Returns:
-        Structure GeoJSON
+        if not file_path.exists():
+            raise NotFound(f"Fichier '{filename}' non trouvé")
+        
+        # Déterminer le mimetype
+        if filename.endswith('.json.gz'):
+            mimetype = 'application/gzip'
+        elif filename.endswith('.json'):
+            mimetype = 'application/json'
+        elif filename.endswith('.csv.gz'):
+            mimetype = 'application/gzip'
+        elif filename.endswith('.csv'):
+            mimetype = 'text/csv'
+        elif filename.endswith('.parquet'):
+            mimetype = 'application/octet-stream'
+        elif filename.endswith('.xlsx'):
+            mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        else:
+            mimetype = 'application/octet-stream'
+        
+        logger.info(f"📥 Téléchargement fichier: {filename}")
+        return send_file(
+            file_path,
+            as_attachment=True,
+            download_name=filename,
+            mimetype=mimetype
+        )
+        
+    except NotFound as e:
+        return jsonify({'success': False, 'error': str(e)}), 404
+    except Exception as e:
+        logger.error(f"❌ Erreur téléchargement {filename}: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Erreur lors du téléchargement',
+            'details': str(e)
+        }), 500
+
+
+@osm_bp.route('/stats', methods=['GET'])
+def get_stats():
     """
-    features = []
+    Retourne les statistiques complètes du service OSM.
+    """
+    try:
+        osm_service = current_app.osm_service
+        stats = osm_service.get_stats()
+        cache_info = osm_service.get_cache_info()
+        
+        # Enrichir avec des métriques calculées
+        if stats['start_time'] and stats['end_time']:
+            total_time = (stats['end_time'] - stats['start_time']).total_seconds()
+            buildings_per_second = stats['total_buildings'] / total_time if total_time > 0 else 0
+        else:
+            total_time = 0
+            buildings_per_second = 0
+        
+        return jsonify({
+            'success': True,
+            'statistics': {
+                'performance': {
+                    'total_buildings': stats['total_buildings'],
+                    'total_time_seconds': round(total_time, 2),
+                    'buildings_per_second': round(buildings_per_second, 2),
+                    'zones_processed': stats['zones_processed'],
+                    'total_requests': stats['total_requests'],
+                    'parallel_requests': stats['parallel_requests']
+                },
+                'cache': {
+                    'enabled': cache_info['cache_enabled'],
+                    'hits': stats['cache_hits'],
+                    'misses': stats['cache_misses'],
+                    'hit_rate_percent': round(
+                        stats['cache_hits'] / (stats['cache_hits'] + stats['cache_misses']) * 100
+                        if (stats['cache_hits'] + stats['cache_misses']) > 0 else 0, 1
+                    ),
+                    'files_count': cache_info['files_count'],
+                    'total_size_mb': cache_info['total_size_mb']
+                },
+                'errors': {
+                    'failed_requests': stats['failed_requests'],
+                    'error_rate_percent': round(
+                        stats['failed_requests'] / stats['total_requests'] * 100
+                        if stats['total_requests'] > 0 else 0, 1
+                    )
+                }
+            },
+            'system_info': {
+                'available_states': list(osm_service.malaysia_states.keys()),
+                'overpass_urls': osm_service.overpass_urls,
+                'max_concurrent_requests': osm_service.max_concurrent_requests,
+                'timeout_seconds': osm_service.timeout
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Erreur récupération stats: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Erreur récupération statistiques',
+            'details': str(e)
+        }), 500
+
+
+# Fonctions utilitaires
+
+def _calculate_building_statistics(buildings: list) -> dict:
+    """Calcule les statistiques des bâtiments."""
+    if not buildings:
+        return {
+            'total_count': 0,
+            'by_type': {},
+            'by_state': {},
+            'has_geometry': 0,
+            'average_area_sqm': 0
+        }
+    
+    # Statistiques par type
+    type_counts = {}
+    state_counts = {}
+    geometry_count = 0
+    total_area = 0
+    area_count = 0
     
     for building in buildings:
-        if 'geometry' in building and building['geometry']:
-            # Convertir la géométrie OSM en format GeoJSON
-            coordinates = []
-            for point in building['geometry']:
-                if 'lat' in point and 'lon' in point:
-                    coordinates.append([point['lon'], point['lat']])
-            
-            if len(coordinates) >= 3:
-                # Fermer le polygon si nécessaire
-                if coordinates[0] != coordinates[-1]:
-                    coordinates.append(coordinates[0])
-                
-                feature = {
-                    'type': 'Feature',
-                    'properties': {
-                        'osm_id': building.get('osm_id'),
-                        'building_type': building.get('building_type'),
-                        'osm_building_tag': building.get('osm_building_tag'),
-                        'area_sqm': building.get('area_sqm'),
-                        'levels': building.get('levels'),
-                        'height': building.get('height'),
-                        'name': building.get('name'),
-                        'city': building.get('city')
-                    },
-                    'geometry': {
-                        'type': 'Polygon',
-                        'coordinates': [coordinates]
-                    }
-                }
-                features.append(feature)
+        # Par type
+        building_type = building.get('building_type', 'unknown')
+        type_counts[building_type] = type_counts.get(building_type, 0) + 1
+        
+        # Par état (approximatif depuis addr_city)
+        state = building.get('addr_city', 'unknown')
+        state_counts[state] = state_counts.get(state, 0) + 1
+        
+        # Géométrie
+        if building.get('geometry_type') or building.get('coordinates'):
+            geometry_count += 1
+        
+        # Surface
+        area = building.get('area_sqm')
+        if area and area > 0:
+            total_area += area
+            area_count += 1
     
     return {
-        'type': 'FeatureCollection',
-        'features': features
+        'total_count': len(buildings),
+        'by_type': type_counts,
+        'by_state': state_counts,
+        'has_geometry': geometry_count,
+        'geometry_percentage': round(geometry_count / len(buildings) * 100, 1),
+        'average_area_sqm': round(total_area / area_count, 1) if area_count > 0 else 0,
+        'buildings_with_area': area_count
     }
 
 
-def _format_buildings_simple(buildings):
-    """
-    Formate les bâtiments au format simple.
+def _generate_download_file(buildings: list, format_type: str, include_geometry: bool, compress: bool) -> tuple:
+    """Génère un fichier de téléchargement dans le format demandé."""
+    temp_dir = Path(tempfile.gettempdir()) / 'osm_downloads'
+    temp_dir.mkdir(exist_ok=True)
     
-    Args:
-        buildings: Liste des bâtiments OSM
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_filename = f"malaysia_buildings_{timestamp}"
+    
+    if format_type == 'json':
+        filename = f"{base_filename}.json"
+        if compress:
+            filename += ".gz"
+        file_path = temp_dir / filename
         
-    Returns:
-        Liste de bâtiments formatés
-    """
-    formatted = []
-    
-    for building in buildings:
-        formatted_building = {
-            'osm_id': building.get('osm_id'),
-            'coordinates': {
-                'latitude': building.get('latitude'),
-                'longitude': building.get('longitude')
-            },
-            'building_type': building.get('building_type'),
-            'properties': {
-                'area_sqm': building.get('area_sqm'),
-                'levels': building.get('levels'),
-                'height': building.get('height'),
-                'name': building.get('name')
-            },
-            'location': {
-                'city': building.get('city'),
-                'address': {
-                    'street': building.get('addr_street'),
-                    'housenumber': building.get('addr_housenumber'),
-                    'postcode': building.get('addr_postcode')
-                }
-            },
-            'osm_metadata': {
-                'osm_type': building.get('osm_type'),
-                'osm_building_tag': building.get('osm_building_tag'),
-                'tags': building.get('tags', {})
-            }
+        data = {
+            'buildings': buildings,
+            'count': len(buildings),
+            'generated_at': datetime.now().isoformat(),
+            'includes_geometry': include_geometry
         }
-        formatted.append(formatted_building)
-    
-    return formatted
-
-
-def _get_cache_recommendations(cache_info, request_stats):
-    """
-    Génère des recommandations pour l'optimisation du cache OSM.
-    
-    Args:
-        cache_info: Informations du cache
-        request_stats: Statistiques des requêtes
         
-    Returns:
-        Liste de recommandations
-    """
+        if compress:
+            with gzip.open(file_path, 'wt', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        else:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+    
+    elif format_type == 'geojson':
+        filename = f"{base_filename}.geojson"
+        if compress:
+            filename += ".gz"
+        file_path = temp_dir / filename
+        
+        # Convertir en GeoJSON
+        features = []
+        for building in buildings:
+            if building.get('coordinates') and include_geometry:
+                geometry = {
+                    "type": "Polygon" if building.get('geometry_type') == 'polygon' else "Point",
+                    "coordinates": building['coordinates'] if building.get('geometry_type') == 'polygon' else [building.get('longitude', 0), building.get('latitude', 0)]
+                }
+            else:
+                geometry = {
+                    "type": "Point",
+                    "coordinates": [building.get('longitude', 0), building.get('latitude', 0)]
+                }
+            
+            feature = {
+                "type": "Feature",
+                "geometry": geometry,
+                "properties": {k: v for k, v in building.items() if k not in ['coordinates', 'latitude', 'longitude']}
+            }
+            features.append(feature)
+        
+        geojson_data = {
+            "type": "FeatureCollection",
+            "features": features
+        }
+        
+        if compress:
+            with gzip.open(file_path, 'wt', encoding='utf-8') as f:
+                json.dump(geojson_data, f, ensure_ascii=False)
+        else:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(geojson_data, f, ensure_ascii=False)
+    
+    elif format_type == 'csv':
+        filename = f"{base_filename}.csv"
+        if compress:
+            filename += ".gz"
+        file_path = temp_dir / filename
+        
+        # Convertir en DataFrame
+        df_data = []
+        for building in buildings:
+            row = building.copy()
+            # Aplatir les coordonnées si pas de géométrie complète
+            if not include_geometry and 'coordinates' in row:
+                del row['coordinates']
+            if 'tags' in row:
+                row['tags'] = json.dumps(row['tags'])
+            df_data.append(row)
+        
+        df = pd.DataFrame(df_data)
+        
+        if compress:
+            df.to_csv(file_path, index=False, encoding='utf-8', compression='gzip')
+        else:
+            df.to_csv(file_path, index=False, encoding='utf-8')
+    
+    elif format_type == 'parquet':
+        filename = f"{base_filename}.parquet"
+        file_path = temp_dir / filename
+        
+        # Convertir en DataFrame pour Parquet
+        df_data = []
+        for building in buildings:
+            row = building.copy()
+            # Convertir les objets complexes en JSON strings pour Parquet
+            if 'coordinates' in row and not include_geometry:
+                del row['coordinates']
+            if 'tags' in row:
+                row['tags'] = json.dumps(row['tags'])
+            df_data.append(row)
+        
+        df = pd.DataFrame(df_data)
+        df.to_parquet(file_path, index=False)
+    
+    elif format_type == 'xlsx':
+        filename = f"{base_filename}.xlsx"
+        file_path = temp_dir / filename
+        
+        # Convertir en DataFrame pour Excel
+        df_data = []
+        for building in buildings:
+            row = building.copy()
+            if 'coordinates' in row and not include_geometry:
+                del row['coordinates']
+            if 'tags' in row:
+                row['tags'] = json.dumps(row['tags'])
+            df_data.append(row)
+        
+        df = pd.DataFrame(df_data)
+        df.to_excel(file_path, index=False)
+    
+    return file_path, filename
+
+
+def _get_mimetype(format_type: str, compress: bool) -> str:
+    """Retourne le mimetype approprié."""
+    mimetypes = {
+        'json': 'application/json',
+        'geojson': 'application/geo+json',
+        'csv': 'text/csv',
+        'parquet': 'application/octet-stream',
+        'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    }
+    
+    if compress and format_type in ['json', 'geojson', 'csv']:
+        return 'application/gzip'
+    
+    return mimetypes.get(format_type, 'application/octet-stream')
+
+
+def _get_cache_recommendations(cache_info: dict, stats: dict) -> list:
+    """Génère des recommandations pour optimiser le cache."""
     recommendations = []
     
-    total_requests = request_stats['cache_hits'] + request_stats['cache_misses']
+    total_requests = stats['cache_hits'] + stats['cache_misses']
     
     if total_requests == 0:
-        recommendations.append("Aucune requête OSM effectuée pour le moment")
+        recommendations.append("Aucune requête effectuée pour le moment")
         return recommendations
     
-    hit_rate = request_stats['cache_hits'] / total_requests * 100
+    hit_rate = stats['cache_hits'] / total_requests * 100
     
     if hit_rate < 30:
-        recommendations.append("Taux de cache faible (<30%) - Considérer augmenter la durée de cache")
+        recommendations.append("🔴 Taux de cache faible (<30%) - Considérer augmenter la durée de cache")
     elif hit_rate < 60:
-        recommendations.append("Taux de cache moyen - Performances correctes")
+        recommendations.append("🟡 Taux de cache moyen (30-60%) - Performances correctes")
     else:
-        recommendations.append("Excellent taux de cache (>60%) - Optimisation réussie")
+        recommendations.append("🟢 Excellent taux de cache (>60%) - Optimisation réussie")
     
     if cache_info['files_count'] > 1000:
-        recommendations.append("Beaucoup de fichiers en cache - Considérer un nettoyage périodique")
+        recommendations.append("⚠️ Beaucoup de fichiers en cache - Considérer un nettoyage périodique")
     
-    if request_stats['failed_requests'] > total_requests * 0.1:
-        recommendations.append("Taux d'échec élevé (>10%) - Vérifier la connectivité Overpass")
+    if cache_info['total_size_mb'] > 1000:
+        recommendations.append("💾 Cache volumineux (>1GB) - Surveiller l'espace disque")
+    
+    if stats['failed_requests'] > total_requests * 0.1:
+        recommendations.append("🔥 Taux d'échec élevé (>10%) - Vérifier la connectivité Overpass")
     
     return recommendations
-
-
-def _estimate_buildings_count(query_data):
-    """
-    Estime le nombre de bâtiments pour une requête OSM.
-    
-    Args:
-        query_data: Données de la requête
-        
-    Returns:
-        Estimation du nombre de bâtiments
-    """
-    query_type = query_data.get('type')
-    
-    if query_type == 'city':
-        # Estimations basées sur les villes malaysiennes connues
-        city = query_data.get('city', '')
-        city_estimates = {
-            'Kuala Lumpur': 15000,
-            'George Town': 8000,
-            'Johor Bahru': 6000,
-            'Ipoh': 5000,
-            'Petaling Jaya': 7000,
-            'Shah Alam': 6000,
-            'Kota Kinabalu': 4000,
-            'Kuching': 3000
-        }
-        base_estimate = city_estimates.get(city, 2000)
-        
-    elif query_type == 'bbox':
-        # Estimation basée sur la taille de la bbox
-        bbox = query_data.get('bbox', [0, 0, 0, 0])
-        if len(bbox) == 4:
-            south, west, north, east = bbox
-            area_deg_sq = (north - south) * (east - west)
-            # Approximation: 1000 bâtiments par degré carré en zone urbaine
-            base_estimate = int(area_deg_sq * 1000)
-        else:
-            base_estimate = 1000
-            
-    elif query_type == 'around':
-        # Estimation basée sur le rayon
-        radius = query_data.get('radius', 1000)
-        # Approximation: 1 bâtiment par 100m² en zone urbaine
-        area_m2 = 3.14159 * (radius ** 2)
-        base_estimate = int(area_m2 / 100)
-        
-    else:
-        base_estimate = 1000
-    
-    # Appliquer la limite si spécifiée
-    limit = query_data.get('limit')
-    if limit and limit < base_estimate:
-        return limit
-    
-    return min(base_estimate, 10000)  # Maximum 10k bâtiments
-
-
-def _estimate_request_time(estimated_buildings):
-    """
-    Estime le temps de requête OSM.
-    
-    Args:
-        estimated_buildings: Nombre estimé de bâtiments
-        
-    Returns:
-        Temps estimé en secondes
-    """
-    # Temps de base + temps proportionnel au nombre de bâtiments
-    base_time = 2.0  # 2 secondes de base
-    time_per_building = 0.001  # 1ms par bâtiment
-    
-    return base_time + (estimated_buildings * time_per_building)
-
-
-def _assess_query_complexity(query_data, estimated_buildings):
-    """
-    Évalue la complexité d'une requête OSM.
-    
-    Args:
-        query_data: Données de la requête
-        estimated_buildings: Nombre estimé de bâtiments
-        
-    Returns:
-        Niveau de complexité
-    """
-    if estimated_buildings < 100:
-        return 'low'
-    elif estimated_buildings < 1000:
-        return 'medium'
-    elif estimated_buildings < 5000:
-        return 'high'
-    else:
-        return 'very_high'
-
-
-# Gestionnaires d'erreurs spécifiques au blueprint OSM
-@osm_bp.errorhandler(404)
-def osm_not_found(error):
-    """Gestionnaire d'erreur 404 pour les routes OSM."""
-    return jsonify({
-        'success': False,
-        'error': 'Endpoint OSM non trouvé',
-        'available_endpoints': [
-            '/osm/buildings - Récupération de bâtiments OSM',
-            '/osm/statistics - Statistiques du service OSM',
-            '/osm/cache/clear - Vidage du cache OSM',
-            '/osm/cache/info - Informations sur le cache',
-            '/osm/validate - Validation de requête OSM'
-        ]
-    }), 404
-
-
-@osm_bp.errorhandler(500)
-def osm_internal_error(error):
-    """Gestionnaire d'erreur 500 pour les routes OSM."""
-    logger.error(f"💥 Erreur interne OSM: {error}")
-    return jsonify({
-        'success': False,
-        'error': 'Erreur interne du service OSM',
-        'timestamp': datetime.now().isoformat(),
-        'suggestion': 'Vérifiez la connectivité avec l\'API Overpass'
-    }), 500
-
-
-# Export du blueprint
-__all__ = ['osm_bp']

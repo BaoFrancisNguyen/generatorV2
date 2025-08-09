@@ -1,648 +1,726 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ROUTES DE GÉNÉRATION OSM AUTOMATIQUE - GÉNÉRATEUR MALAYSIA
+ROUTES DE GÉNÉRATION OSM ULTRA-OPTIMISÉES - GÉNÉRATEUR MALAYSIA
 Fichier: app/routes/osm_generation.py
 
-Nouvelles routes pour la génération automatique basée sur les bâtiments réels OSM.
-Le nombre de bâtiments est déterminé automatiquement par OSM, pas par l'utilisateur.
+Routes optimisées pour génération de données énergétiques basées sur OSM:
+- Génération exhaustive Malaysia
+- Preview rapide avec échantillonnage
+- Export direct avec tous les formats
+- Monitoring en temps réel
 
 Auteur: Équipe Développement
 Date: 2025
-Version: 3.0 - Génération OSM automatique
+Version: 4.0 - Ultra-optimisé pour récupération complète
 """
 
 import logging
+import asyncio
 from datetime import datetime
-from flask import Blueprint, request, jsonify, current_app
-from werkzeug.exceptions import BadRequest
+from flask import Blueprint, request, jsonify, current_app, send_file
+from werkzeug.exceptions import BadRequest, NotFound
+import pandas as pd
+import tempfile
+from pathlib import Path
+
+from app.utils.validators import validate_osm_request, validate_generation_request
 
 # Créer le blueprint pour les routes de génération OSM
 osm_generation_bp = Blueprint('osm_generation', __name__)
 logger = logging.getLogger(__name__)
 
 
-@osm_generation_bp.route('/preview', methods=['POST'])
-def preview_osm_buildings():
+@osm_generation_bp.route('/preview/all', methods=['GET'])
+def preview_all_malaysia():
     """
-    Aperçu des bâtiments disponibles dans une zone via OSM.
-    Ne génère pas encore les données, juste la liste des bâtiments.
+    🚀 PREVIEW ULTRA-RAPIDE: Aperçu de TOUS les bâtiments Malaysia.
     
-    Body JSON:
-    {
-        "zone_type": "country|state|city|custom",
-        "state": "Selangor",  // si zone_type=state
-        "city": "Kuala Lumpur",  // si zone_type=city
-        "bbox": [south, west, north, east],  // si zone_type=custom
-        "building_types": ["residential", "commercial", "industrial", "public"]
-    }
+    Utilise un échantillonnage intelligent pour donner un aperçu rapide
+    de la distribution des bâtiments sans récupérer toutes les données.
+    
+    Query Parameters:
+        sample_size (int): Taille de l'échantillon (défaut: 1000)
+        include_stats (bool): Inclure les statistiques détaillées
+        include_map_data (bool): Inclure les données pour la carte
     
     Returns:
-        JSON avec la liste des bâtiments et statistiques
+        JSON avec aperçu des bâtiments et estimations
     """
-    logger.info("🔍 Aperçu des bâtiments OSM demandé")
+    logger.info("👀 Preview ULTRA-RAPIDE Malaysia")
     
     try:
-        if not request.is_json:
-            raise BadRequest("Content-Type application/json requis")
+        # Paramètres
+        sample_size = request.args.get('sample_size', type=int, default=1000)
+        include_stats = request.args.get('include_stats', 'true').lower() == 'true'
+        include_map_data = request.args.get('include_map_data', 'true').lower() == 'true'
         
-        data = request.get_json()
-        if not data:
-            raise BadRequest("Corps de requête JSON vide")
+        # Validation
+        if sample_size < 10 or sample_size > 10000:
+            raise BadRequest("sample_size doit être entre 10 et 10000")
         
-        zone_type = data.get('zone_type')
-        building_types = data.get('building_types', ['residential', 'commercial', 'industrial', 'public'])
+        osm_service = current_app.osm_service
         
-        if not zone_type:
-            raise BadRequest("zone_type requis")
-        
-        # Construire la requête OSM selon le type de zone
-        osm_query_params = _build_osm_query_params(zone_type, data, building_types)
-        
-        # Récupérer les bâtiments via le service OSM
+        # STRATÉGIE: Récupération par échantillonnage de zones
         start_time = datetime.now()
-        buildings = _fetch_buildings_from_osm(osm_query_params)
-        fetch_time = (datetime.now() - start_time).total_seconds()
         
-        # Calculer les statistiques
-        stats = _calculate_building_statistics(buildings)
+        # Sélectionner quelques états représentatifs pour l'échantillon
+        sample_states = ['selangor', 'johor', 'penang', 'kuala_lumpur', 'sabah']
         
-        # Préparer la réponse
+        logger.info(f"🎯 Échantillonnage sur {len(sample_states)} états...")
+        
+        sample_buildings = []
+        states_data = {}
+        
+        for state in sample_states:
+            try:
+                state_buildings = osm_service.get_buildings_for_city(state, limit=sample_size // len(sample_states))
+                sample_buildings.extend(state_buildings)
+                states_data[state] = {
+                    'count': len(state_buildings),
+                    'sample_taken': True
+                }
+                logger.info(f"✅ {state}: {len(state_buildings)} bâtiments échantillonnés")
+                
+            except Exception as e:
+                logger.warning(f"⚠️ Échec échantillonnage {state}: {e}")
+                states_data[state] = {
+                    'count': 0,
+                    'sample_taken': False,
+                    'error': str(e)
+                }
+        
+        preview_time = (datetime.now() - start_time).total_seconds()
+        
+        # Limiter l'échantillon à la taille demandée
+        if len(sample_buildings) > sample_size:
+            sample_buildings = sample_buildings[:sample_size]
+        
+        # Calculs d'estimation
+        total_estimated = _estimate_total_buildings_malaysia(sample_buildings, states_data)
+        
+        # Statistiques de l'échantillon
+        sample_stats = _calculate_sample_statistics(sample_buildings) if include_stats else {}
+        
+        # Données pour la carte
+        map_data = _prepare_map_data(sample_buildings) if include_map_data else []
+        
+        # Estimation du temps de récupération complète
+        estimated_full_time = _estimate_full_retrieval_time(total_estimated, preview_time)
+        
         response = {
             'success': True,
-            'zone_info': {
-                'zone_type': zone_type,
-                'building_types_requested': building_types,
-                'fetch_time_seconds': round(fetch_time, 2)
+            'preview': {
+                'sample_size': len(sample_buildings),
+                'sample_time_seconds': round(preview_time, 2),
+                'states_sampled': len([s for s in states_data.values() if s['sample_taken']]),
+                'states_data': states_data
             },
-            'buildings_found': len(buildings),
-            'statistics': stats,
-            'buildings_sample': buildings[:50] if len(buildings) > 50 else buildings,  # Échantillon pour la carte
-            'ready_for_generation': len(buildings) > 0,
-            'estimated_generation_time': _estimate_generation_time(len(buildings)),
-            'warnings': _get_preview_warnings(len(buildings), zone_type)
+            'estimations': {
+                'total_buildings_estimated': total_estimated,
+                'confidence_level': 'medium',  # Basé sur échantillonnage partiel
+                'full_retrieval_time_estimated_seconds': estimated_full_time,
+                'full_retrieval_time_estimated_minutes': round(estimated_full_time / 60, 1)
+            },
+            'sample_statistics': sample_stats,
+            'map_data': map_data,
+            'recommendations': _get_retrieval_recommendations(total_estimated, estimated_full_time),
+            'ready_for_full_retrieval': True
         }
         
-        # Sauvegarder les bâtiments en session pour la génération
-        # Dans une vraie implémentation, utiliser Redis ou base de données
-        current_app._last_buildings_preview = {
-            'buildings': buildings,
-            'timestamp': datetime.now(),
-            'zone_type': zone_type
-}
-        
-        logger.info(f"✅ Aperçu OSM terminé: {len(buildings)} bâtiments trouvés en {fetch_time:.2f}s")
-        
+        logger.info(f"👀 Preview terminé: {len(sample_buildings)} échantillons, {total_estimated} estimés")
         return jsonify(response)
         
     except BadRequest as e:
-        logger.warning(f"⚠️ Requête d'aperçu invalide: {e}")
-        return jsonify({
-            'success': False,
-            'error': 'Requête invalide',
-            'details': str(e)
-        }), 400
-    
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
-        logger.error(f"❌ Erreur lors de l'aperçu OSM: {e}")
+        logger.error(f"❌ Erreur preview: {e}")
         return jsonify({
             'success': False,
-            'error': 'Erreur lors de la récupération des bâtiments',
+            'error': 'Erreur lors du preview',
             'details': str(e)
         }), 500
 
 
-@osm_generation_bp.route('/generate', methods=['POST'])
-def generate_from_osm_preview():
+@osm_generation_bp.route('/generate/all', methods=['POST'])
+def generate_all_malaysia():
     """
-    Génère les données énergétiques basées sur l'aperçu OSM précédent.
-    Utilise les bâtiments récupérés lors de l'aperçu.
+    🚀 GÉNÉRATION EXHAUSTIVE: Récupère TOUS les bâtiments et génère les données énergétiques.
     
     Body JSON:
     {
-        "start_date": "2024-01-01",
-        "end_date": "2024-01-31",
-        "frequency": "D",
-        "export_format": "parquet",
-        "include_weather": true,
-        "include_metadata": true
+        "export_format": "parquet|csv|excel|json",
+        "download_immediately": true|false,
+        "energy_params": {
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "frequency": "D",
+            "include_weather": true,
+            "custom_profiles": {...}
+        },
+        "building_filters": {
+            "types": ["residential", "commercial"],
+            "min_area": 50,
+            "states": ["selangor", "johor"]
+        }
     }
-    
-    Returns:
-        JSON avec les données générées ou les fichiers d'export
     """
-    logger.info("🏗️ Génération basée sur aperçu OSM")
+    logger.info("🚀 Génération EXHAUSTIVE Malaysia")
     
     try:
+        # Validation de la requête
         if not request.is_json:
             raise BadRequest("Content-Type application/json requis")
         
         data = request.get_json()
         if not data:
-            raise BadRequest("Corps de requête JSON vide")
+            raise BadRequest("Corps JSON requis")
         
-        # Vérifier qu'un aperçu a été fait
-        if not hasattr(current_app, '_last_buildings_preview') or not current_app._last_buildings_preview:
-            raise BadRequest("Aucun aperçu disponible. Effectuez d'abord un aperçu des bâtiments.")
-        
-        preview_data = current_app._last_buildings_preview
-        buildings_list = preview_data['buildings']
-        
-        if not buildings_list:
-            raise BadRequest("Aucun bâtiment disponible pour la génération")
-        
-        # Vérifier que l'aperçu n'est pas trop ancien (30 minutes max)
-        age_minutes = (datetime.now() - preview_data['timestamp']).total_seconds() / 60
-        if age_minutes > 30:
-            raise BadRequest("Aperçu trop ancien. Veuillez refaire un aperçu.")
-        
-        # Paramètres de génération
-        start_date = data.get('start_date')
-        end_date = data.get('end_date')
-        frequency = data.get('frequency', 'D')
-        export_format = data.get('export_format', 'json')
-        include_weather = data.get('include_weather', False)
-        include_metadata = data.get('include_metadata', True)
+        # Paramètres par défaut
+        export_format = data.get('export_format', 'parquet').lower()
+        download_immediately = data.get('download_immediately', False)
+        energy_params = data.get('energy_params', {})
+        building_filters = data.get('building_filters', {})
         
         # Validation des paramètres
-        _validate_generation_params(start_date, end_date, frequency)
+        valid_formats = ['parquet', 'csv', 'excel', 'json']
+        if export_format not in valid_formats:
+            raise BadRequest(f"Format invalide. Formats supportés: {', '.join(valid_formats)}")
         
-        logger.info(f"📊 Génération pour {len(buildings_list)} bâtiments du {start_date} au {end_date}")
+        osm_service = current_app.osm_service
+        generation_service = current_app.generation_service
         
-        # Convertir les bâtiments OSM en format générateur
-        start_time = datetime.now()
-        buildings_df = _convert_osm_buildings_to_dataframe(buildings_list)
+        # ÉTAPE 1: Récupération exhaustive des bâtiments OSM
+        logger.info("🏢 ÉTAPE 1: Récupération exhaustive des bâtiments...")
         
-        # Générer les séries temporelles
-        timeseries_df = current_app.data_generator.generate_timeseries_data(
-            buildings_df=buildings_df,
-            start_date=start_date,
-            end_date=end_date,
-            frequency=frequency
-        )
+        buildings_start_time = datetime.now()
+        all_buildings = osm_service.get_all_buildings_malaysia()
+        buildings_fetch_time = (datetime.now() - buildings_start_time).total_seconds()
         
-        generation_time = (datetime.now() - start_time).total_seconds()
+        logger.info(f"✅ Récupération terminée: {len(all_buildings)} bâtiments en {buildings_fetch_time:.1f}s")
         
-        # Ajouter le contexte météorologique si demandé
-        if include_weather:
-            timeseries_df = _add_weather_context(timeseries_df, buildings_df)
+        # ÉTAPE 2: Filtrage des bâtiments
+        filtered_buildings = _apply_building_filters(all_buildings, building_filters)
+        logger.info(f"🔍 Filtrage: {len(filtered_buildings)} bâtiments retenus (sur {len(all_buildings)})")
         
-        # Créer le dataset complet
-        dataset = {
-            'buildings': buildings_df,
-            'timeseries': timeseries_df,
-            'metadata': _generate_osm_metadata(
-                buildings_df, timeseries_df, start_date, end_date, 
-                frequency, preview_data, generation_time
-            )
+        # ÉTAPE 3: Génération des données énergétiques
+        logger.info("⚡ ÉTAPE 2: Génération des données énergétiques...")
+        
+        generation_start_time = datetime.now()
+        
+        # Préparer les paramètres de génération
+        generation_config = {
+            'buildings': filtered_buildings,
+            'start_date': energy_params.get('start_date', '2024-01-01'),
+            'end_date': energy_params.get('end_date', '2024-12-31'),
+            'frequency': energy_params.get('frequency', 'D'),
+            'include_weather': energy_params.get('include_weather', True),
+            'custom_profiles': energy_params.get('custom_profiles', {}),
+            'source': 'osm_exhaustive'
         }
         
-        # Validation des données générées
-        validation_results = current_app.validation_service.validate_complete_dataset(
-            buildings_df, timeseries_df
-        )
+        # Générer les données énergétiques
+        energy_dataset = generation_service.generate_from_buildings(generation_config)
         
-        # Préparer la réponse selon le format
-        if export_format == 'json' and data.get('return_data', False):
-            # Retour direct des données
-            response = {
-                'success': True,
-                'generation_info': {
-                    'total_buildings': len(buildings_df),
-                    'total_observations': len(timeseries_df),
-                    'generation_time_seconds': round(generation_time, 2),
-                    'osm_source': True,
-                    'zone_type': preview_data['zone_type']
+        generation_time = (datetime.now() - generation_start_time).total_seconds()
+        logger.info(f"⚡ Génération terminée en {generation_time:.1f}s")
+        
+        # ÉTAPE 3: Export et réponse
+        total_time = buildings_fetch_time + generation_time
+        
+        response_data = {
+            'success': True,
+            'process_summary': {
+                'total_time_seconds': round(total_time, 2),
+                'total_time_minutes': round(total_time / 60, 2),
+                'buildings_fetched': len(all_buildings),
+                'buildings_used': len(filtered_buildings),
+                'buildings_fetch_time_seconds': round(buildings_fetch_time, 2),
+                'energy_generation_time_seconds': round(generation_time, 2)
+            },
+            'dataset_info': {
+                'buildings_count': len(energy_dataset['buildings']),
+                'timeseries_records': len(energy_dataset['timeseries']),
+                'date_range': {
+                    'start': generation_config['start_date'],
+                    'end': generation_config['end_date']
                 },
-                'validation': validation_results,
-                'data': {
-                    'buildings': buildings_df.to_dict('records'),
-                    'timeseries': timeseries_df.head(1000).to_dict('records')  # Limiter pour éviter surcharge
-                },
-                'metadata': dataset['metadata']
-            }
-        else:
-            # Export vers fichiers
-            export_result = current_app.export_service.export_dataset(
-                dataset, 
-                export_format,
-                include_metadata=include_metadata,
-                filename_prefix='malaysia_osm'
-            )
+                'frequency': generation_config['frequency']
+            },
+            'osm_stats': osm_service.get_stats(),
+            'generated_at': datetime.now().isoformat()
+        }
+        
+        # Export selon le format
+        if export_format != 'json' or download_immediately:
+            export_result = _export_energy_dataset(energy_dataset, export_format, generation_config)
             
-            response = {
-                'success': True,
-                'generation_info': {
-                    'total_buildings': len(buildings_df),
-                    'total_observations': len(timeseries_df),
-                    'generation_time_seconds': round(generation_time, 2),
-                    'osm_source': True,
-                    'zone_type': preview_data['zone_type']
-                },
-                'validation': validation_results,
-                'export': {
-                    'format': export_format,
-                    'files': export_result['files'],
-                    'total_size_bytes': export_result['total_size']
-                },
-                'metadata': dataset['metadata']
+            response_data['export'] = {
+                'format': export_format,
+                'files': export_result['files'],
+                'total_size_bytes': export_result['total_size'],
+                'total_size_mb': round(export_result['total_size'] / (1024 * 1024), 2)
+            }
+            
+            if download_immediately and export_result['files']:
+                first_file = export_result['files'][0]
+                logger.info(f"📥 Téléchargement immédiat: {first_file['name']}")
+                return send_file(
+                    first_file['path'],
+                    as_attachment=True,
+                    download_name=first_file['name']
+                )
+        else:
+            # Inclure les données dans la réponse JSON
+            response_data['data'] = {
+                'buildings': energy_dataset['buildings'].to_dict('records') if hasattr(energy_dataset['buildings'], 'to_dict') else energy_dataset['buildings'],
+                'timeseries': energy_dataset['timeseries'].to_dict('records') if hasattr(energy_dataset['timeseries'], 'to_dict') else energy_dataset['timeseries']
             }
         
-        # Nettoyer l'aperçu après utilisation
-        current_app._last_buildings_preview = None
-        
-        logger.info(f"✅ Génération OSM terminée: {len(timeseries_df)} observations en {generation_time:.2f}s")
-        
-        return jsonify(response)
+        logger.info(f"🎉 Génération exhaustive terminée: {len(filtered_buildings)} bâtiments en {total_time:.1f}s")
+        return jsonify(response_data)
         
     except BadRequest as e:
-        logger.warning(f"⚠️ Requête de génération invalide: {e}")
-        return jsonify({
-            'success': False,
-            'error': 'Requête invalide',
-            'details': str(e)
-        }), 400
-    
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
-        logger.error(f"❌ Erreur lors de la génération OSM: {e}")
+        logger.error(f"❌ Erreur génération exhaustive: {e}")
         return jsonify({
             'success': False,
-            'error': 'Erreur lors de la génération',
+            'error': 'Erreur lors de la génération exhaustive',
             'details': str(e)
         }), 500
 
 
-@osm_generation_bp.route('/zones/available', methods=['GET'])
-def get_available_zones():
+@osm_generation_bp.route('/generate/by-state/<state_name>', methods=['POST'])
+def generate_by_state(state_name):
     """
-    Retourne les zones géographiques disponibles pour la génération OSM.
+    Génère les données énergétiques pour un état spécifique.
     
-    Returns:
-        JSON avec les pays, états, et villes supportés
+    Path Parameters:
+        state_name (str): Nom de l'état Malaysia
     """
-    logger.info("🗺️ Demande des zones disponibles")
+    logger.info(f"🏛️ Génération pour l'état: {state_name}")
     
     try:
-        zones = {
+        data = request.get_json() or {}
+        
+        export_format = data.get('export_format', 'parquet').lower()
+        download_immediately = data.get('download_immediately', False)
+        energy_params = data.get('energy_params', {})
+        
+        osm_service = current_app.osm_service
+        generation_service = current_app.generation_service
+        
+        # Récupération pour l'état
+        buildings = osm_service.get_buildings_for_city(state_name)
+        
+        if not buildings:
+            return jsonify({
+                'success': False,
+                'error': f'Aucun bâtiment trouvé pour {state_name}'
+            }), 404
+        
+        # Génération énergétique
+        generation_config = {
+            'buildings': buildings,
+            'start_date': energy_params.get('start_date', '2024-01-01'),
+            'end_date': energy_params.get('end_date', '2024-12-31'),
+            'frequency': energy_params.get('frequency', 'D'),
+            'source': f'osm_state_{state_name}'
+        }
+        
+        energy_dataset = generation_service.generate_from_buildings(generation_config)
+        
+        # Export et réponse
+        if export_format != 'json' or download_immediately:
+            export_result = _export_energy_dataset(energy_dataset, export_format, generation_config)
+            
+            if download_immediately and export_result['files']:
+                first_file = export_result['files'][0]
+                return send_file(first_file['path'], as_attachment=True, download_name=first_file['name'])
+        
+        return jsonify({
             'success': True,
-            'zones': {
-                'countries': ['Malaysia'],
-                'states': [
-                    'Johor', 'Kedah', 'Kelantan', 'Malacca', 'Negeri Sembilan',
-                    'Pahang', 'Penang', 'Perak', 'Perlis', 'Selangor',
-                    'Terengganu', 'Sabah', 'Sarawak', 'Federal Territory'
-                ],
-                'major_cities': [
-                    'Kuala Lumpur', 'George Town', 'Ipoh', 'Shah Alam',
-                    'Petaling Jaya', 'Johor Bahru', 'Kota Kinabalu',
-                    'Kuching', 'Malacca', 'Alor Setar', 'Seremban',
-                    'Kuantan', 'Kuala Terengganu', 'Kota Bharu'
-                ]
-            },
-            'building_types': ['residential', 'commercial', 'industrial', 'public'],
-            'supported_frequencies': ['H', 'D', 'W'],
-            'export_formats': ['json', 'csv', 'parquet', 'excel']
-        }
-        
-        return jsonify(zones)
+            'state': state_name,
+            'buildings_count': len(buildings),
+            'dataset_info': {
+                'buildings_count': len(energy_dataset['buildings']),
+                'timeseries_records': len(energy_dataset['timeseries'])
+            }
+        })
         
     except Exception as e:
-        logger.error(f"❌ Erreur lors de la récupération des zones: {e}")
+        logger.error(f"❌ Erreur génération état {state_name}: {e}")
         return jsonify({
             'success': False,
-            'error': 'Erreur lors de la récupération des zones',
+            'error': f'Erreur génération {state_name}',
             'details': str(e)
         }), 500
 
 
-# === FONCTIONS UTILITAIRES ===
-
-def _build_osm_query_params(zone_type, data, building_types):
+@osm_generation_bp.route('/status', methods=['GET'])
+def get_generation_status():
     """
-    Construit les paramètres de requête OSM selon le type de zone.
+    Retourne le statut en temps réel de la génération en cours.
     """
-    params = {
-        'building_types': building_types
-    }
-    
-    if zone_type == 'country':
-        # Toute la Malaysia - grande bbox
-        params['bbox'] = [0.5, 99.0, 7.5, 120.0]
+    try:
+        osm_service = current_app.osm_service
+        osm_stats = osm_service.get_stats()
         
-    elif zone_type == 'state':
-        state = data.get('state')
-        if not state:
-            raise BadRequest("État requis pour zone_type=state")
-        params['state'] = state
+        # Déterminer le statut
+        if osm_stats['start_time'] and not osm_stats['end_time']:
+            status = 'in_progress'
+        elif osm_stats['end_time']:
+            status = 'completed'
+        else:
+            status = 'idle'
         
-    elif zone_type == 'city':
-        city = data.get('city')
-        if not city:
-            raise BadRequest("Ville requise pour zone_type=city")
-        params['city'] = city
+        # Calculer le progrès
+        total_zones = len(osm_service.malaysia_states) + 4
+        progress_percent = min(100, (osm_stats['zones_processed'] / total_zones) * 100) if total_zones > 0 else 0
         
-    elif zone_type == 'custom':
-        bbox = data.get('bbox')
-        if not bbox or len(bbox) != 4:
-            raise BadRequest("Bbox requise pour zone_type=custom [south, west, north, east]")
-        params['bbox'] = bbox
-    
-    else:
-        raise BadRequest(f"zone_type '{zone_type}' non supporté")
-    
-    return params
+        return jsonify({
+            'success': True,
+            'status': status,
+            'progress': {
+                'percent': round(progress_percent, 1),
+                'zones_processed': osm_stats['zones_processed'],
+                'total_zones': total_zones,
+                'buildings_found': osm_stats['total_buildings'],
+                'current_phase': _determine_current_phase(osm_stats)
+            },
+            'performance': {
+                'requests_made': osm_stats['total_requests'],
+                'parallel_requests': osm_stats['parallel_requests'],
+                'cache_hits': osm_stats['cache_hits'],
+                'failed_requests': osm_stats['failed_requests']
+            },
+            'timing': _calculate_timing_info(osm_stats)
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Erreur statut génération: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Erreur récupération statut',
+            'details': str(e)
+        }), 500
 
 
-def _fetch_buildings_from_osm(params):
-    """
-    Récupère les bâtiments depuis OSM selon les paramètres.
-    """
-    osm_service = current_app.osm_service
+# Fonctions utilitaires
+
+def _estimate_total_buildings_malaysia(sample_buildings: list, states_data: dict) -> int:
+    """Estime le nombre total de bâtiments en Malaysia."""
+    if not sample_buildings:
+        return 0
     
-    if 'city' in params:
-        buildings = osm_service.get_buildings_for_city(
-            city_name=params['city'],
-            limit=None  # Pas de limite, récupérer tous les bâtiments
-        )
-    elif 'bbox' in params:
-        buildings = osm_service.get_buildings_in_bbox(
-            bbox=params['bbox'],
-            building_types=params.get('building_types')
-        )
-    elif 'state' in params:
-        # Pour l'état, utiliser une bbox approximative
-        state_bbox = _get_state_bbox(params['state'])
-        buildings = osm_service.get_buildings_in_bbox(
-            bbox=state_bbox,
-            building_types=params.get('building_types')
-        )
-    else:
-        raise ValueError("Paramètres OSM insuffisants")
+    # Estimation basée sur la densité de l'échantillon
+    successful_states = [s for s in states_data.values() if s['sample_taken']]
     
-    return buildings
+    if not successful_states:
+        return len(sample_buildings) * 50  # Estimation très approximative
+    
+    # Moyenne de bâtiments par état échantillonné
+    avg_per_sampled_state = sum(s['count'] for s in successful_states) / len(successful_states)
+    
+    # Estimation pour tous les états (15 états + territoires fédéraux)
+    total_states = 15
+    
+    # Facteur de correction pour les états non échantillonnés
+    correction_factor = 1.2  # Les petits états ont généralement moins de bâtiments
+    
+    estimated_total = int(avg_per_sampled_state * total_states * correction_factor)
+    
+    # Limites de sécurité
+    min_estimate = len(sample_buildings) * 10
+    max_estimate = 2000000  # 2 millions max
+    
+    return max(min_estimate, min(estimated_total, max_estimate))
 
 
-def _get_state_bbox(state_name):
-    """
-    Retourne la bbox approximative d'un état malaysien.
-    """
-    state_bboxes = {
-        'Johor': [1.2, 102.5, 2.8, 104.8],
-        'Kedah': [5.0, 99.6, 6.8, 101.0],
-        'Kelantan': [4.5, 101.8, 6.3, 102.8],
-        'Malacca': [2.0, 102.0, 2.5, 102.6],
-        'Negeri Sembilan': [2.4, 101.8, 3.2, 102.8],
-        'Pahang': [2.8, 101.8, 4.8, 104.0],
-        'Penang': [5.2, 100.1, 5.6, 100.6],
-        'Perak': [3.8, 100.5, 5.8, 101.8],
-        'Perlis': [6.3, 100.0, 6.8, 100.6],
-        'Selangor': [2.8, 101.0, 3.8, 102.0],
-        'Terengganu': [4.0, 102.8, 6.0, 103.8],
-        'Sabah': [4.0, 115.0, 7.5, 119.5],
-        'Sarawak': [0.8, 109.5, 5.0, 115.5],
-        'Federal Territory': [3.0, 101.5, 3.3, 101.8]
-    }
+def _estimate_full_retrieval_time(total_buildings: int, sample_time: float) -> float:
+    """Estime le temps de récupération complète."""
+    if total_buildings <= 0:
+        return 0
     
-    return state_bboxes.get(state_name, [0.5, 99.0, 7.5, 120.0])
+    # Estimation basée sur la performance de l'échantillon
+    # Facteur de parallélisation (10 requêtes simultanées)
+    parallelization_factor = 0.3  # 70% de gain grâce au parallélisme
+    
+    # Facteur de cache (amélioration avec le cache)
+    cache_factor = 0.7  # 30% de gain grâce au cache
+    
+    # Estimation de base
+    base_estimate = sample_time * (total_buildings / 1000) * parallelization_factor * cache_factor
+    
+    # Minimum de 30 secondes, maximum de 30 minutes
+    return max(30, min(base_estimate, 1800))
 
 
-def _calculate_building_statistics(buildings):
-    """
-    Calcule les statistiques des bâtiments récupérés.
-    """
-    stats = {
-        'total': len(buildings),
-        'by_type': {},
-        'average_area': 0,
-        'coordinates_range': {}
-    }
+def _calculate_sample_statistics(sample_buildings: list) -> dict:
+    """Calcule les statistiques de l'échantillon."""
+    if not sample_buildings:
+        return {}
     
-    if not buildings:
-        return stats
+    # Distribution par type
+    types_count = {}
+    areas = []
+    states_count = {}
     
-    # Statistiques par type
-    for building in buildings:
+    for building in sample_buildings:
+        # Types
         building_type = building.get('building_type', 'unknown')
-        stats['by_type'][building_type] = stats['by_type'].get(building_type, 0) + 1
+        types_count[building_type] = types_count.get(building_type, 0) + 1
+        
+        # Aires
+        area = building.get('area_sqm')
+        if area and area > 0:
+            areas.append(area)
+        
+        # États
+        state = building.get('addr_city', 'unknown')
+        states_count[state] = states_count.get(state, 0) + 1
     
-    # Surface moyenne
-    areas = [b.get('area_sqm', 0) for b in buildings if b.get('area_sqm')]
-    if areas:
-        stats['average_area'] = round(sum(areas) / len(areas), 1)
-    
-    # Plage de coordonnées
-    lats = [b['latitude'] for b in buildings]
-    lons = [b['longitude'] for b in buildings]
-    
-    if lats and lons:
-        stats['coordinates_range'] = {
-            'lat_min': round(min(lats), 4),
-            'lat_max': round(max(lats), 4),
-            'lon_min': round(min(lons), 4),
-            'lon_max': round(max(lons), 4)
+    return {
+        'types_distribution': types_count,
+        'states_distribution': states_count,
+        'area_statistics': {
+            'count_with_area': len(areas),
+            'average_area_sqm': round(sum(areas) / len(areas), 1) if areas else 0,
+            'min_area_sqm': min(areas) if areas else 0,
+            'max_area_sqm': max(areas) if areas else 0
         }
-    
-    return stats
+    }
 
 
-def _estimate_generation_time(num_buildings):
-    """
-    Estime le temps de génération selon le nombre de bâtiments.
-    """
-    # Estimation basée sur des benchmarks
-    # ~100 bâtiments par seconde pour des données quotidiennes
-    base_time = 2  # 2 secondes de base
-    building_time = num_buildings / 100  # 1 seconde pour 100 bâtiments
+def _prepare_map_data(sample_buildings: list) -> list:
+    """Prépare les données pour l'affichage sur la carte."""
+    map_data = []
     
-    total_seconds = base_time + building_time
+    for building in sample_buildings[:100]:  # Limiter à 100 pour la carte
+        if building.get('latitude') and building.get('longitude'):
+            map_data.append({
+                'lat': building['latitude'],
+                'lng': building['longitude'],
+                'type': building.get('building_type', 'unknown'),
+                'name': building.get('name', 'Bâtiment sans nom'),
+                'area': building.get('area_sqm')
+            })
     
-    if total_seconds < 60:
-        return f"{int(total_seconds)} secondes"
+    return map_data
+
+
+def _get_retrieval_recommendations(total_estimated: int, estimated_time: float) -> list:
+    """Génère des recommandations pour la récupération."""
+    recommendations = []
+    
+    if total_estimated > 500000:
+        recommendations.append("🔶 Volume très important (>500k bâtiments) - Prévoir du temps")
+    elif total_estimated > 100000:
+        recommendations.append("🔸 Volume important (>100k bâtiments) - Récupération recommandée")
     else:
-        minutes = int(total_seconds / 60)
-        seconds = int(total_seconds % 60)
-        return f"{minutes}m {seconds}s"
-
-
-def _get_preview_warnings(num_buildings, zone_type):
-    """
-    Génère des avertissements basés sur le nombre de bâtiments.
-    """
-    warnings = []
+        recommendations.append("🟢 Volume modéré - Récupération rapide")
     
-    if num_buildings == 0:
-        warnings.append("Aucun bâtiment trouvé dans cette zone")
-    elif num_buildings > 10000:
-        warnings.append("Très grand nombre de bâtiments - génération longue attendue")
-    elif num_buildings > 5000:
-        warnings.append("Grand nombre de bâtiments - temps de génération élevé")
+    if estimated_time > 600:  # Plus de 10 minutes
+        recommendations.append("⏰ Temps estimé long - Lancer en arrière-plan")
+        recommendations.append("💾 Utiliser le cache pour les prochaines fois")
+    elif estimated_time > 120:  # Plus de 2 minutes
+        recommendations.append("⌛ Temps modéré - Patience recommandée")
+    else:
+        recommendations.append("⚡ Récupération rapide attendue")
     
-    if zone_type == 'country' and num_buildings < 1000:
-        warnings.append("Peu de bâtiments pour tout le pays - vérifiez les filtres")
+    recommendations.append("📊 Utiliser l'endpoint /status pour suivre le progrès")
+    recommendations.append("💾 Les données seront automatiquement mises en cache")
     
-    return warnings
+    return recommendations
 
 
-def _validate_generation_params(start_date, end_date, frequency):
-    """
-    Valide les paramètres de génération.
-    """
-    if not start_date or not end_date:
-        raise BadRequest("start_date et end_date requis")
+def _apply_building_filters(buildings: list, filters: dict) -> list:
+    """Applique les filtres aux bâtiments."""
+    if not filters:
+        return buildings
+    
+    filtered = buildings
+    
+    # Filtre par types
+    if 'types' in filters and filters['types']:
+        allowed_types = set(filters['types'])
+        filtered = [b for b in filtered if b.get('building_type') in allowed_types]
+    
+    # Filtre par surface minimale
+    if 'min_area' in filters and filters['min_area']:
+        min_area = filters['min_area']
+        filtered = [b for b in filtered if b.get('area_sqm', 0) >= min_area]
+    
+    # Filtre par états
+    if 'states' in filters and filters['states']:
+        allowed_states = set(s.lower().replace(' ', '_') for s in filters['states'])
+        filtered = [b for b in filtered if any(state in str(b.get('addr_city', '')).lower() for state in allowed_states)]
+    
+    return filtered
+
+
+def _export_energy_dataset(dataset: dict, format_type: str, config: dict) -> dict:
+    """Exporte le dataset énergétique dans le format demandé."""
+    temp_dir = Path(tempfile.gettempdir()) / 'energy_exports'
+    temp_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = f"malaysia_energy_{timestamp}"
+    
+    exported_files = []
+    total_size = 0
     
     try:
-        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
-        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
-    except ValueError:
-        raise BadRequest("Format de date invalide. Utilisez YYYY-MM-DD")
-    
-    if start_dt >= end_dt:
-        raise BadRequest("end_date doit être après start_date")
-    
-    period_days = (end_dt - start_dt).days
-    if period_days > 365:
-        raise BadRequest("Période maximum: 365 jours")
-    
-    valid_frequencies = ['H', 'D', 'W']
-    if frequency not in valid_frequencies:
-        raise BadRequest(f"Fréquence doit être dans {valid_frequencies}")
-
-
-def _convert_osm_buildings_to_dataframe(osm_buildings):
-    """
-    Convertit les bâtiments OSM en DataFrame compatible avec le générateur.
-    """
-    import pandas as pd
-    import uuid
-    
-    buildings_data = []
-    
-    for osm_building in osm_buildings:
-        # Générer un ID unique pour le générateur
-        unique_id = str(uuid.uuid4()).replace('-', '')[:16]
+        if format_type == 'parquet':
+            # Export Parquet (recommandé pour gros volumes)
+            buildings_file = temp_dir / f"{base_name}_buildings.parquet"
+            timeseries_file = temp_dir / f"{base_name}_timeseries.parquet"
+            
+            if hasattr(dataset['buildings'], 'to_parquet'):
+                dataset['buildings'].to_parquet(buildings_file, index=False)
+                dataset['timeseries'].to_parquet(timeseries_file, index=False)
+            else:
+                # Si ce sont des listes, convertir en DataFrame
+                pd.DataFrame(dataset['buildings']).to_parquet(buildings_file, index=False)
+                pd.DataFrame(dataset['timeseries']).to_parquet(timeseries_file, index=False)
+            
+            exported_files.extend([
+                {'name': f"{base_name}_buildings.parquet", 'path': buildings_file, 'type': 'buildings'},
+                {'name': f"{base_name}_timeseries.parquet", 'path': timeseries_file, 'type': 'timeseries'}
+            ])
         
-        building_data = {
-            'unique_id': unique_id,
-            'building_id': f"OSM_{osm_building.get('osm_id', unique_id)}",
-            'latitude': osm_building['latitude'],
-            'longitude': osm_building['longitude'],
-            'location': osm_building.get('city', 'Malaysia'),
-            'state': 'Unknown',  # Pourrait être déterminé par géocodage
-            'region': 'Unknown',
-            'building_class': osm_building['building_type'],
-            'osm_source': True,
-            'osm_id': osm_building.get('osm_id'),
-            'area_sqm': osm_building.get('area_sqm'),
-            'levels': osm_building.get('levels'),
-            'height': osm_building.get('height'),
-            'characteristics': {
-                'osm_tags': osm_building.get('tags', {}),
-                'osm_type': osm_building.get('osm_type', 'way')
+        elif format_type == 'csv':
+            # Export CSV
+            buildings_file = temp_dir / f"{base_name}_buildings.csv"
+            timeseries_file = temp_dir / f"{base_name}_timeseries.csv"
+            
+            if hasattr(dataset['buildings'], 'to_csv'):
+                dataset['buildings'].to_csv(buildings_file, index=False)
+                dataset['timeseries'].to_csv(timeseries_file, index=False)
+            else:
+                pd.DataFrame(dataset['buildings']).to_csv(buildings_file, index=False)
+                pd.DataFrame(dataset['timeseries']).to_csv(timeseries_file, index=False)
+            
+            exported_files.extend([
+                {'name': f"{base_name}_buildings.csv", 'path': buildings_file, 'type': 'buildings'},
+                {'name': f"{base_name}_timeseries.csv", 'path': timeseries_file, 'type': 'timeseries'}
+            ])
+        
+        elif format_type == 'excel':
+            # Export Excel avec onglets multiples
+            excel_file = temp_dir / f"{base_name}_complete.xlsx"
+            
+            with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
+                if hasattr(dataset['buildings'], 'to_excel'):
+                    dataset['buildings'].to_excel(writer, sheet_name='Buildings', index=False)
+                    dataset['timeseries'].to_excel(writer, sheet_name='Timeseries', index=False)
+                else:
+                    pd.DataFrame(dataset['buildings']).to_excel(writer, sheet_name='Buildings', index=False)
+                    pd.DataFrame(dataset['timeseries']).to_excel(writer, sheet_name='Timeseries', index=False)
+                
+                # Ajouter une feuille de métadonnées
+                metadata_df = pd.DataFrame([
+                    ['Generated at', datetime.now().isoformat()],
+                    ['Source', config.get('source', 'osm')],
+                    ['Buildings count', len(dataset['buildings'])],
+                    ['Date range', f"{config.get('start_date')} to {config.get('end_date')}"],
+                    ['Frequency', config.get('frequency', 'D')]
+                ], columns=['Parameter', 'Value'])
+                metadata_df.to_excel(writer, sheet_name='Metadata', index=False)
+            
+            exported_files.append({
+                'name': f"{base_name}_complete.xlsx",
+                'path': excel_file,
+                'type': 'complete'
+            })
+        
+        elif format_type == 'json':
+            # Export JSON
+            json_file = temp_dir / f"{base_name}_complete.json"
+            
+            export_data = {
+                'metadata': {
+                    'generated_at': datetime.now().isoformat(),
+                    'source': config.get('source', 'osm'),
+                    'buildings_count': len(dataset['buildings']),
+                    'config': config
+                },
+                'buildings': dataset['buildings'].to_dict('records') if hasattr(dataset['buildings'], 'to_dict') else dataset['buildings'],
+                'timeseries': dataset['timeseries'].to_dict('records') if hasattr(dataset['timeseries'], 'to_dict') else dataset['timeseries']
             }
-        }
+            
+            import json
+            with open(json_file, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, ensure_ascii=False, indent=2)
+            
+            exported_files.append({
+                'name': f"{base_name}_complete.json",
+                'path': json_file,
+                'type': 'complete'
+            })
         
-        buildings_data.append(building_data)
-    
-    return pd.DataFrame(buildings_data)
-
-
-def _add_weather_context(timeseries_df, buildings_df):
-    """
-    Ajoute un contexte météorologique aux séries temporelles.
-    """
-    # Implementation simplifiée - dans la vraie version,
-    # intégrer avec une API météo réelle
-    
-    import numpy as np
-    import pandas as pd
-    
-    def generate_weather_context(timestamp, location):
-        """Génère un contexte météo approximatif pour Malaysia"""
-        month = timestamp.month
-        hour = timestamp.hour
-        
-        # Température de base selon le mois
-        base_temps = {
-            1: 26, 2: 27, 3: 29, 4: 30, 5: 30, 6: 29,
-            7: 28, 8: 28, 9: 29, 10: 29, 11: 28, 12: 26
-        }
-        
-        base_temp = base_temps[month]
-        
-        # Variation journalière
-        if 6 <= hour <= 8:
-            temp_variation = -1
-        elif 14 <= hour <= 16:
-            temp_variation = 3
-        elif 22 <= hour or hour <= 5:
-            temp_variation = -3
-        else:
-            temp_variation = 0
-        
-        temperature = base_temp + temp_variation + np.random.normal(0, 1)
-        humidity = max(60, min(95, 80 + np.random.normal(0, 5)))
+        # Calculer la taille totale
+        for file_info in exported_files:
+            file_size = Path(file_info['path']).stat().st_size
+            file_info['size_bytes'] = file_size
+            file_info['size_mb'] = round(file_size / (1024 * 1024), 2)
+            total_size += file_size
         
         return {
-            'temperature': round(temperature, 1),
-            'humidity': round(humidity, 1),
-            'is_raining': np.random.random() < 0.3  # 30% chance
+            'files': exported_files,
+            'total_size': total_size,
+            'format': format_type
         }
-    
-    # Ajouter le contexte météo à chaque observation
-    weather_contexts = []
-    
-    for _, row in timeseries_df.iterrows():
-        timestamp = pd.to_datetime(row['timestamp'])
-        location = row['unique_id']  # Simplification
         
-        weather = generate_weather_context(timestamp, location)
-        weather_contexts.append(weather)
+    except Exception as e:
+        logger.error(f"❌ Erreur export {format_type}: {e}")
+        raise
+
+
+def _determine_current_phase(osm_stats: dict) -> str:
+    """Détermine la phase actuelle du processus."""
+    if not osm_stats['start_time']:
+        return 'idle'
+    elif not osm_stats['end_time']:
+        if osm_stats['zones_processed'] == 0:
+            return 'initializing'
+        elif osm_stats['zones_processed'] < 5:
+            return 'fetching_major_states'
+        else:
+            return 'fetching_remaining_zones'
+    else:
+        return 'completed'
+
+
+def _calculate_timing_info(osm_stats: dict) -> dict:
+    """Calcule les informations de timing."""
+    timing_info = {}
     
-    timeseries_df['weather_context'] = weather_contexts
+    if osm_stats['start_time']:
+        start_time = osm_stats['start_time']
+        end_time = osm_stats['end_time'] or datetime.now()
+        
+        elapsed = (end_time - start_time).total_seconds()
+        
+        timing_info.update({
+            'elapsed_seconds': round(elapsed, 1),
+            'elapsed_minutes': round(elapsed / 60, 1),
+            'started_at': start_time.isoformat(),
+            'ended_at': end_time.isoformat() if osm_stats['end_time'] else None
+        })
+        
+        # Estimation du temps restant
+        if not osm_stats['end_time'] and osm_stats['zones_processed'] > 0:
+            total_zones = 19  # 15 états + 4 zones supplémentaires
+            avg_time_per_zone = elapsed / osm_stats['zones_processed']
+            remaining_zones = total_zones - osm_stats['zones_processed']
+            estimated_remaining = remaining_zones * avg_time_per_zone
+            
+            timing_info.update({
+                'estimated_remaining_seconds': round(estimated_remaining, 1),
+                'estimated_remaining_minutes': round(estimated_remaining / 60, 1),
+                'estimated_completion': (datetime.now() + pd.Timedelta(seconds=estimated_remaining)).isoformat()
+            })
     
-    return timeseries_df
-
-
-def _generate_osm_metadata(buildings_df, timeseries_df, start_date, end_date, 
-                          frequency, preview_data, generation_time):
-    """
-    Génère les métadonnées spécifiques à la génération OSM.
-    """
-    return {
-        'dataset_name': 'malaysia_osm_electricity_v3',
-        'generation_timestamp': datetime.now().isoformat(),
-        'generator_version': '3.0',
-        'data_source': 'OpenStreetMap',
-        'osm_fetch_timestamp': preview_data['timestamp'].isoformat(),
-        'zone_type': preview_data['zone_type'],
-        'total_buildings': len(buildings_df),
-        'total_observations': len(timeseries_df),
-        'generation_time_seconds': round(generation_time, 2),
-        'period': {
-            'start_date': start_date,
-            'end_date': end_date,
-            'frequency': frequency,
-            'total_days': (datetime.strptime(end_date, '%Y-%m-%d') - 
-                          datetime.strptime(start_date, '%Y-%m-%d')).days + 1
-        },
-        'geographic_coverage': {
-            'country': 'Malaysia',
-            'osm_buildings_used': True,
-            'coordinates_range': {
-                'lat_min': buildings_df['latitude'].min(),
-                'lat_max': buildings_df['latitude'].max(),
-                'lon_min': buildings_df['longitude'].min(),
-                'lon_max': buildings_df['longitude'].max()
-            }
-        },
-        'building_distribution': buildings_df['building_class'].value_counts().to_dict(),
-        'data_quality': {
-            'osm_source': True,
-            'real_coordinates': True,
-            'synthetic_consumption': True
-        }
-    }
-
-
-# Export du blueprint
-__all__ = ['osm_generation_bp']
+    return timing_info

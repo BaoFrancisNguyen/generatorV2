@@ -1,26 +1,34 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SERVICE OPENSTREETMAP OPTIMISÉ - GÉNÉRATEUR MALAYSIA
+SERVICE OPENSTREETMAP ULTRA-OPTIMISÉ - GÉNÉRATEUR MALAYSIA
 Fichier: app/services/osm_service.py
 
-Service optimisé pour l'intégration avec OpenStreetMap et l'API Overpass.
-Améliore considérablement les performances et le nombre de résultats.
+Service ultra-optimisé pour récupérer TOUS les bâtiments OSM rapidement:
+- Requêtes parallèles par subdivisions
+- Cache intelligent avec compression
+- Optimisations spécifiques Malaysia
+- Récupération exhaustive sans timeouts
 
 Auteur: Équipe Développement
 Date: 2025
-Version: 3.1 - Service optimisé
+Version: 4.0 - Ultra-optimisé pour récupération complète
 """
 
 import logging
 import json
 import time
 import hashlib
+import asyncio
+import aiohttp
+import concurrent.futures
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional, Any
 import requests
 import pandas as pd
 from pathlib import Path
+import pickle
+import gzip
 
 from app.models.building import Building
 from app.models.location import Location
@@ -29,636 +37,604 @@ from app.utils.validators import validate_coordinates, validate_osm_data
 
 class OSMService:
     """
-    Service optimisé pour l'intégration avec OpenStreetMap.
+    Service ultra-optimisé pour récupération exhaustive de bâtiments OSM.
     
-    Optimisations apportées:
-    - Requêtes Overpass plus efficaces avec récursion pour grandes zones
-    - Parallélisation des requêtes par subdivisions
-    - Cache intelligent avec compression
-    - Requêtes spécialisées pour la Malaysia
+    Nouvelles optimisations:
+    - Requêtes parallèles asynchrones
+    - Subdivision adaptative des zones
+    - Cache compressé avec pickle
+    - Récupération par chunks pour éviter les timeouts
     """
     
     def __init__(self, config=None):
-        """
-        Initialise le service OSM optimisé.
-        """
+        """Initialise le service OSM ultra-optimisé."""
         self.logger = logging.getLogger(__name__)
         self.config = config
         
-        # Configuration OSM optimisée
-        self.overpass_url = self._get_config_value('OVERPASS_API_URL', 'https://overpass-api.de/api/interpreter')
-        self.timeout = self._get_config_value('OSM_REQUEST_TIMEOUT', 300)  # ✅ Augmenté à 5 minutes
-        self.max_retries = self._get_config_value('OSM_MAX_RETRIES', 3)
-        self.cache_enabled = self._get_config_value('OSM_CACHE_ENABLED', True)
-        self.cache_duration = timedelta(hours=self._get_config_value('OSM_CACHE_DURATION_HOURS', 24))
+        # URLs Overpass multiples pour load balancing
+        self.overpass_urls = [
+            'https://overpass-api.de/api/interpreter',
+            'https://lz4.overpass-api.de/api/interpreter',
+            'https://z.overpass-api.de/api/interpreter'
+        ]
+        self.current_url_index = 0
         
-        # ✅ Optimisations spécifiques Malaysia
+        # Configuration ultra-optimisée
+        self.timeout = self._get_config_value('OSM_REQUEST_TIMEOUT', 600)  # 10 minutes
+        self.max_retries = self._get_config_value('OSM_MAX_RETRIES', 5)
+        self.max_concurrent_requests = self._get_config_value('OSM_MAX_CONCURRENT', 10)
+        self.chunk_size = self._get_config_value('OSM_CHUNK_SIZE', 0.1)  # Degrés de subdivision
+        self.cache_enabled = True
+        self.cache_duration = timedelta(hours=72)  # Cache 3 jours
+        
+        # Zones Malaysia optimisées
         self.malaysia_bounds = {
-            'south': 0.855,
-            'west': 99.644,
-            'north': 7.363,
-            'east': 119.267
+            'south': 0.855, 'west': 99.644,
+            'north': 7.363, 'east': 119.267
         }
         
-        # Cache
+        # États Malaysia pour subdivision intelligente
+        self.malaysia_states = {
+            'johor': {'south': 1.2, 'west': 103.2, 'north': 2.8, 'east': 104.4},
+            'kedah': {'south': 5.0, 'west': 99.6, 'north': 6.8, 'east': 101.0},
+            'kelantan': {'south': 4.5, 'west': 101.2, 'north': 6.2, 'east': 102.6},
+            'melaka': {'south': 2.0, 'west': 102.0, 'north': 2.5, 'east': 102.6},
+            'negeri_sembilan': {'south': 2.3, 'west': 101.4, 'north': 3.2, 'east': 102.8},
+            'pahang': {'south': 2.8, 'west': 101.8, 'north': 4.8, 'east': 103.8},
+            'perak': {'south': 3.7, 'west': 100.1, 'north': 5.9, 'east': 102.0},
+            'perlis': {'south': 6.2, 'west': 100.1, 'north': 6.8, 'east': 100.6},
+            'penang': {'south': 5.1, 'west': 100.1, 'north': 5.6, 'east': 100.6},
+            'sabah': {'south': 4.0, 'west': 115.0, 'north': 7.4, 'east': 119.3},
+            'sarawak': {'south': 0.8, 'west': 109.6, 'north': 5.1, 'east': 115.5},
+            'selangor': {'south': 2.8, 'west': 101.0, 'north': 3.8, 'east': 101.9},
+            'terengganu': {'south': 4.0, 'west': 102.5, 'north': 5.9, 'east': 103.9},
+            'kuala_lumpur': {'south': 3.0, 'west': 101.6, 'north': 3.3, 'east': 101.8},
+            'putrajaya': {'south': 2.9, 'west': 101.6, 'north': 3.0, 'east': 101.8}
+        }
+        
+        # Cache avec compression
         self.cache_dir = self._get_config_value('CACHE_DIR', Path('data/cache'))
-        self.cache_dir = Path(self.cache_dir) / 'osm'
+        self.cache_dir = Path(self.cache_dir) / 'osm_v4'
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         
         # Statistiques
-        self.request_stats = {
+        self.reset_stats()
+        
+        self.logger.info("🚀 Service OSM ULTRA-OPTIMISÉ v4.0 initialisé")
+    
+    def reset_stats(self):
+        """Reset les statistiques."""
+        self.stats = {
             'total_requests': 0,
+            'parallel_requests': 0,
             'cache_hits': 0,
             'cache_misses': 0,
             'failed_requests': 0,
-            'total_buildings_found': 0
+            'total_buildings': 0,
+            'start_time': None,
+            'end_time': None,
+            'zones_processed': 0
+        }
+    
+    async def get_all_buildings_malaysia_async(self) -> List[Dict]:
+        """
+        🚀 MÉTHODE PRINCIPALE: Récupère TOUS les bâtiments de Malaysia.
+        Utilise des requêtes parallèles asynchrones pour maximum de performance.
+        """
+        self.logger.info("🇲🇾 Début récupération EXHAUSTIVE des bâtiments Malaysia")
+        self.reset_stats()
+        self.stats['start_time'] = datetime.now()
+        
+        # Vérifier le cache global d'abord
+        cache_key = "malaysia_all_buildings_v4"
+        cached_result = self._get_from_cache(cache_key)
+        if cached_result:
+            self.logger.info(f"💾 Cache HIT global: {len(cached_result)} bâtiments")
+            self.stats['cache_hits'] = 1
+            self.stats['total_buildings'] = len(cached_result)
+            return cached_result
+        
+        all_buildings = []
+        
+        # Méthode 1: Par états (plus rapide et plus fiable)
+        buildings_by_states = await self._get_buildings_by_states_async()
+        all_buildings.extend(buildings_by_states)
+        
+        # Méthode 2: Zones supplémentaires (pour les zones non couvertes)
+        additional_buildings = await self._get_buildings_additional_zones_async()
+        all_buildings.extend(additional_buildings)
+        
+        # Déduplication par OSM ID
+        unique_buildings = self._deduplicate_buildings(all_buildings)
+        
+        # Sauvegarde en cache
+        self._save_to_cache(cache_key, unique_buildings)
+        
+        self.stats['end_time'] = datetime.now()
+        self.stats['total_buildings'] = len(unique_buildings)
+        
+        duration = (self.stats['end_time'] - self.stats['start_time']).total_seconds()
+        self.logger.info(f"✅ Récupération terminée: {len(unique_buildings)} bâtiments uniques en {duration:.1f}s")
+        self._log_final_stats()
+        
+        return unique_buildings
+    
+    async def _get_buildings_by_states_async(self) -> List[Dict]:
+        """Récupère les bâtiments par états Malaysia en parallèle."""
+        self.logger.info("🏛️ Récupération par états Malaysia...")
+        
+        # Créer les tâches pour chaque état
+        tasks = []
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout)) as session:
+            for state_name, bounds in self.malaysia_states.items():
+                task = self._get_buildings_for_bounds_async(session, state_name, bounds)
+                tasks.append(task)
+            
+            # Exécuter en parallèle avec limite de concurrence
+            semaphore = asyncio.Semaphore(self.max_concurrent_requests)
+            limited_tasks = [self._limited_request(semaphore, task) for task in tasks]
+            results = await asyncio.gather(*limited_tasks, return_exceptions=True)
+        
+        # Consolider les résultats
+        all_buildings = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                state_name = list(self.malaysia_states.keys())[i]
+                self.logger.error(f"❌ Échec état {state_name}: {result}")
+                self.stats['failed_requests'] += 1
+            else:
+                all_buildings.extend(result)
+                self.stats['zones_processed'] += 1
+        
+        self.logger.info(f"🏛️ États traités: {self.stats['zones_processed']}/{len(self.malaysia_states)}")
+        return all_buildings
+    
+    async def _get_buildings_additional_zones_async(self) -> List[Dict]:
+        """Récupère les bâtiments dans les zones supplémentaires (zones maritimes, etc.)."""
+        self.logger.info("🌊 Récupération zones supplémentaires...")
+        
+        # Zones supplémentaires pour couvrir les îles et zones non couvertes
+        additional_zones = {
+            'labuan': {'south': 5.25, 'west': 115.15, 'north': 5.35, 'east': 115.25},
+            'langkawi': {'south': 6.25, 'west': 99.65, 'north': 6.45, 'east': 99.85},
+            'tioman': {'south': 2.75, 'west': 104.10, 'north': 2.85, 'east': 104.20},
+            'perhentian': {'south': 5.85, 'west': 102.70, 'north': 5.95, 'east': 102.80}
         }
         
-        self.logger.info("✅ Service OSM optimisé initialisé")
-    
-    def get_buildings_for_malaysia(self, limit: Optional[int] = None) -> List[Dict]:
-        """
-        ✅ NOUVELLE MÉTHODE: Récupère TOUS les bâtiments de Malaysia par subdivisions.
-        
-        Cette méthode divise la Malaysia en grilles plus petites pour éviter les timeouts
-        et récupérer un maximum de bâtiments.
-        
-        Args:
-            limit: Limite optionnelle du nombre de bâtiments
+        tasks = []
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout)) as session:
+            for zone_name, bounds in additional_zones.items():
+                task = self._get_buildings_for_bounds_async(session, zone_name, bounds)
+                tasks.append(task)
             
-        Returns:
-            Liste complète des bâtiments malaysiens
-        """
-        self.logger.info("🇲🇾 Récupération de TOUS les bâtiments de Malaysia (mode optimisé)")
+            semaphore = asyncio.Semaphore(self.max_concurrent_requests)
+            limited_tasks = [self._limited_request(semaphore, task) for task in tasks]
+            results = await asyncio.gather(*limited_tasks, return_exceptions=True)
         
         all_buildings = []
-        
-        # ✅ Diviser la Malaysia en grilles de 0.5° x 0.5° (environ 55km x 55km)
-        grid_size = 0.5
-        
-        west = self.malaysia_bounds['west']
-        east = self.malaysia_bounds['east']
-        south = self.malaysia_bounds['south']
-        north = self.malaysia_bounds['north']
-        
-        total_grids = 0
-        processed_grids = 0
-        
-        # Calculer le nombre total de grilles
-        lat_steps = int((north - south) / grid_size) + 1
-        lon_steps = int((east - west) / grid_size) + 1
-        total_grids = lat_steps * lon_steps
-        
-        self.logger.info(f"📊 Division en {total_grids} grilles ({lat_steps}x{lon_steps}) de {grid_size}°")
-        
-        current_lat = south
-        while current_lat < north:
-            current_lon = west
-            while current_lon < east:
-                # Définir la bbox de cette grille
-                grid_south = current_lat
-                grid_north = min(current_lat + grid_size, north)
-                grid_west = current_lon
-                grid_east = min(current_lon + grid_size, east)
-                
-                bbox = [grid_south, grid_west, grid_north, grid_east]
-                
-                try:
-                    processed_grids += 1
-                    self.logger.info(f"📦 Grille {processed_grids}/{total_grids}: {bbox}")
-                    
-                    # Récupérer les bâtiments de cette grille
-                    grid_buildings = self.get_buildings_in_bbox_optimized(bbox)
-                    
-                    if grid_buildings:
-                        all_buildings.extend(grid_buildings)
-                        self.logger.info(f"✅ Grille {processed_grids}: {len(grid_buildings)} bâtiments "
-                                       f"(Total: {len(all_buildings)})")
-                    
-                    # Vérifier la limite
-                    if limit and len(all_buildings) >= limit:
-                        self.logger.info(f"🎯 Limite atteinte: {len(all_buildings)} bâtiments")
-                        return all_buildings[:limit]
-                    
-                    # Pause entre les requêtes pour éviter la surcharge du serveur
-                    time.sleep(0.5)
-                    
-                except Exception as e:
-                    self.logger.warning(f"⚠️ Erreur grille {processed_grids}: {e}")
-                    continue
-                
-                current_lon += grid_size
-            current_lat += grid_size
-        
-        self.logger.info(f"🎉 TERMINÉ: {len(all_buildings)} bâtiments récupérés pour toute la Malaysia")
-        self.request_stats['total_buildings_found'] = len(all_buildings)
+        for result in results:
+            if not isinstance(result, Exception):
+                all_buildings.extend(result)
         
         return all_buildings
     
-    def get_buildings_in_bbox_optimized(self, bbox: Tuple[float, float, float, float], 
-                                      building_types: Optional[List[str]] = None) -> List[Dict]:
-        """
-        ✅ Version optimisée de récupération par bbox.
-        
-        Utilise une requête Overpass plus efficace et gère mieux les gros volumes.
-        """
-        south, west, north, east = bbox
-        
-        try:
-            # Construire une requête Overpass optimisée
-            query = self._build_optimized_overpass_query(bbox, building_types)
-            
-            # Exécuter avec cache
-            cache_key = f"opt_bbox_{south:.3f}_{west:.3f}_{north:.3f}_{east:.3f}"
-            osm_data = self._execute_overpass_query(query, cache_key)
-            
-            # Traiter les données
-            buildings = self._process_osm_buildings_optimized(osm_data)
-            
-            return buildings
-            
-        except Exception as e:
-            self.logger.error(f"❌ Erreur bbox optimisée {bbox}: {e}")
-            return []
+    async def _limited_request(self, semaphore, coro):
+        """Limite la concurrence des requêtes."""
+        async with semaphore:
+            return await coro
     
-    def _build_optimized_overpass_query(self, bbox: Tuple[float, float, float, float], 
-                                      building_types: Optional[List[str]] = None) -> str:
-        """
-        ✅ Construit une requête Overpass OPTIMISÉE pour la Malaysia.
+    async def _get_buildings_for_bounds_async(self, session: aiohttp.ClientSession, zone_name: str, bounds: Dict) -> List[Dict]:
+        """Récupère les bâtiments pour une zone donnée avec subdivision adaptative."""
+        self.logger.debug(f"📍 Traitement zone: {zone_name}")
         
-        Optimisations:
-        - Limite la récursion 
-        - Utilise des filtres plus efficaces
-        - Optimise pour les types de bâtiments malaysiens
-        """
-        south, west, north, east = bbox
+        # Vérifier le cache pour cette zone
+        cache_key = f"zone_{zone_name}_{hashlib.md5(str(bounds).encode()).hexdigest()[:8]}"
+        cached_result = self._get_from_cache(cache_key)
+        if cached_result:
+            self.stats['cache_hits'] += 1
+            return cached_result
         
-        # ✅ Types de bâtiments courrants en Malaysia
-        if not building_types:
-            # Filtres optimisés pour Malaysia
-            building_filter = '["building"~"^(yes|house|residential|apartments|commercial|retail|office|shop|hotel|school|hospital|mosque|temple|church|warehouse|industrial|factory)$"]'
-        else:
-            type_conditions = '|'.join([f'{bt}' for bt in building_types])
-            building_filter = f'["building"~"^({type_conditions})$"]'
+        # Calculer la taille de la zone
+        area_size = (bounds['north'] - bounds['south']) * (bounds['east'] - bounds['west'])
         
-        # ✅ Requête optimisée avec limite et sans géométrie excessive
-        query = f"""
-        [out:json][timeout:{self.timeout}][maxsize:2147483648];
-        (
-            way{building_filter}({south},{west},{north},{east});
-            rel{building_filter}({south},{west},{north},{east});
-        );
-        out center meta;
-        """
+        # Si la zone est trop grande, subdiviser
+        if area_size > 2.0:  # Plus de 2 degrés carrés
+            return await self._subdivide_and_fetch_async(session, zone_name, bounds)
         
-        return query.strip()
-    
-    def get_buildings_for_city(self, city_name: str, limit: Optional[int] = None) -> List[Dict]:
-        """
-        ✅ Version optimisée pour récupérer les bâtiments d'une ville.
-        """
-        self.logger.info(f"🏙️ Récupération optimisée des bâtiments pour {city_name}")
-        
-        try:
-            # Coordonnées des principales villes malaysiennes
-            city_coords = self._get_malaysia_city_coordinates(city_name)
-            
-            if not city_coords:
-                self.logger.warning(f"⚠️ Ville inconnue: {city_name}")
-                return []
-            
-            # ✅ Utiliser un rayon adaptatif selon la ville
-            radius = self._get_city_radius(city_name)
-            
-            # Récupérer par subdivisions circulaires
-            buildings = self._get_buildings_around_city_optimized(
-                city_coords['lat'], 
-                city_coords['lon'], 
-                radius, 
-                limit
-            )
-            
-            self.logger.info(f"✅ {len(buildings)} bâtiments trouvés pour {city_name}")
-            return buildings
-            
-        except Exception as e:
-            self.logger.error(f"❌ Erreur lors de la récupération pour {city_name}: {e}")
-            return []
-    
-    def _get_buildings_around_city_optimized(self, lat: float, lon: float, 
-                                           radius: int, limit: Optional[int] = None) -> List[Dict]:
-        """
-        ✅ Récupération optimisée autour d'une ville par anneaux concentriques.
-        """
-        all_buildings = []
-        
-        # ✅ Diviser en anneaux concentriques pour éviter les timeouts
-        ring_size = min(2000, radius // 3)  # Anneaux de 2km max
-        current_radius = ring_size
-        
-        while current_radius <= radius:
-            try:
-                self.logger.info(f"🔄 Anneau: rayon {current_radius}m")
-                
-                # Requête pour cet anneau
-                ring_buildings = self._get_buildings_in_ring(lat, lon, current_radius - ring_size, current_radius)
-                
-                if ring_buildings:
-                    all_buildings.extend(ring_buildings)
-                    self.logger.info(f"✅ Anneau {current_radius}m: {len(ring_buildings)} bâtiments "
-                                   f"(Total: {len(all_buildings)})")
-                
-                # Vérifier la limite
-                if limit and len(all_buildings) >= limit:
-                    return all_buildings[:limit]
-                
-                current_radius += ring_size
-                time.sleep(0.3)  # Pause entre requêtes
-                
-            except Exception as e:
-                self.logger.warning(f"⚠️ Erreur anneau {current_radius}m: {e}")
-                current_radius += ring_size
-                continue
-        
-        return all_buildings
-    
-    def _get_buildings_in_ring(self, lat: float, lon: float, 
-                             inner_radius: int, outer_radius: int) -> List[Dict]:
-        """
-        ✅ Récupère les bâtiments dans un anneau (entre deux rayons).
-        """
-        try:
-            # Construire la requête pour l'anneau
-            query = f"""
-            [out:json][timeout:{self.timeout}];
-            (
-                way["building"](around:{outer_radius},{lat},{lon});
-                rel["building"](around:{outer_radius},{lat},{lon});
-            );
-            out center meta;
-            """
-            
-            cache_key = f"ring_{lat:.3f}_{lon:.3f}_{inner_radius}_{outer_radius}"
-            osm_data = self._execute_overpass_query(query, cache_key)
-            
-            # Traiter et filtrer par distance
-            all_buildings = self._process_osm_buildings_optimized(osm_data)
-            
-            # ✅ Filtrer pour garder seulement les bâtiments dans l'anneau
-            ring_buildings = []
-            for building in all_buildings:
-                distance = self._calculate_distance(lat, lon, building['lat'], building['lon'])
-                if inner_radius <= distance <= outer_radius:
-                    ring_buildings.append(building)
-            
-            return ring_buildings
-            
-        except Exception as e:
-            self.logger.error(f"❌ Erreur anneau {inner_radius}-{outer_radius}m: {e}")
-            return []
-    
-    def _process_osm_buildings_optimized(self, osm_data: Dict) -> List[Dict]:
-        """
-        ✅ Traitement optimisé des données OSM.
-        
-        Améliorations:
-        - Extraction plus rapide des coordonnées
-        - Nettoyage intelligent des données
-        - Gestion des bâtiments sans géométrie
-        """
-        buildings = []
-        elements = osm_data.get('elements', [])
-        
-        for element in elements:
-            try:
-                building_data = self._extract_building_data_optimized(element)
-                if building_data:
-                    buildings.append(building_data)
-            except Exception as e:
-                # Ignorer les éléments problématiques
-                continue
+        # Sinon, requête directe
+        buildings = await self._fetch_single_zone_async(session, zone_name, bounds)
+        self._save_to_cache(cache_key, buildings)
         
         return buildings
     
-    def _extract_building_data_optimized(self, element: Dict) -> Optional[Dict]:
+    async def _subdivide_and_fetch_async(self, session: aiohttp.ClientSession, zone_name: str, bounds: Dict) -> List[Dict]:
+        """Subdivise une zone trop grande et récupère en parallèle."""
+        self.logger.debug(f"✂️ Subdivision zone: {zone_name}")
+        
+        # Calculer les subdivisions
+        lat_chunks = max(2, int((bounds['north'] - bounds['south']) / self.chunk_size))
+        lon_chunks = max(2, int((bounds['east'] - bounds['west']) / self.chunk_size))
+        
+        lat_step = (bounds['north'] - bounds['south']) / lat_chunks
+        lon_step = (bounds['east'] - bounds['west']) / lon_chunks
+        
+        # Créer les sous-zones
+        tasks = []
+        for i in range(lat_chunks):
+            for j in range(lon_chunks):
+                sub_bounds = {
+                    'south': bounds['south'] + i * lat_step,
+                    'north': bounds['south'] + (i + 1) * lat_step,
+                    'west': bounds['west'] + j * lon_step,
+                    'east': bounds['west'] + (j + 1) * lon_step
+                }
+                sub_zone_name = f"{zone_name}_sub_{i}_{j}"
+                task = self._fetch_single_zone_async(session, sub_zone_name, sub_bounds)
+                tasks.append(task)
+        
+        # Exécuter en parallèle
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Consolider
+        all_buildings = []
+        for result in results:
+            if not isinstance(result, Exception):
+                all_buildings.extend(result)
+        
+        return all_buildings
+    
+    async def _fetch_single_zone_async(self, session: aiohttp.ClientSession, zone_name: str, bounds: Dict) -> List[Dict]:
+        """Récupère les bâtiments pour une zone unique."""
+        query = self._build_overpass_query(bounds)
+        
+        for attempt in range(self.max_retries):
+            try:
+                url = self._get_next_overpass_url()
+                
+                async with session.post(url, data=query, headers={'Content-Type': 'text/plain'}) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        buildings = self._parse_overpass_response(data)
+                        
+                        self.stats['total_requests'] += 1
+                        if attempt > 0:
+                            self.stats['parallel_requests'] += 1
+                        
+                        self.logger.debug(f"✅ Zone {zone_name}: {len(buildings)} bâtiments")
+                        return buildings
+                    else:
+                        error_text = await response.text()
+                        self.logger.warning(f"⚠️ HTTP {response.status} pour {zone_name}: {error_text[:100]}")
+                        
+            except Exception as e:
+                self.logger.warning(f"⚠️ Tentative {attempt + 1} échec pour {zone_name}: {e}")
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(2 ** attempt)  # Backoff exponentiel
+        
+        self.stats['failed_requests'] += 1
+        return []
+    
+    def _build_overpass_query(self, bounds: Dict) -> str:
+        """Construit une requête Overpass optimisée pour récupérer TOUS les bâtiments."""
+        return f"""
+        [out:json][timeout:600];
+        (
+          way["building"~"."](
+            {bounds['south']},{bounds['west']},{bounds['north']},{bounds['east']}
+          );
+          relation["building"~"."](
+            {bounds['south']},{bounds['west']},{bounds['north']},{bounds['east']}
+          );
+        );
+        (._;>;);
+        out geom meta;
         """
-        ✅ Extraction optimisée des données d'un bâtiment OSM.
-        """
+    
+    def _parse_overpass_response(self, data: Dict) -> List[Dict]:
+        """Parse une réponse Overpass et extrait les informations des bâtiments."""
+        buildings = []
+        
+        if 'elements' not in data:
+            return buildings
+        
+        # Séparer les nœuds, chemins et relations
+        nodes = {elem['id']: elem for elem in data['elements'] if elem['type'] == 'node'}
+        ways = [elem for elem in data['elements'] if elem['type'] == 'way' and 'tags' in elem and 'building' in elem['tags']]
+        relations = [elem for elem in data['elements'] if elem['type'] == 'relation' and 'tags' in elem and 'building' in elem['tags']]
+        
+        # Traiter les ways (la majorité des bâtiments)
+        for way in ways:
+            building = self._parse_way_to_building(way, nodes)
+            if building:
+                buildings.append(building)
+        
+        # Traiter les relations
+        for relation in relations:
+            building = self._parse_relation_to_building(relation)
+            if building:
+                buildings.append(building)
+        
+        return buildings
+    
+    def _parse_way_to_building(self, way: Dict, nodes: Dict) -> Optional[Dict]:
+        """Parse un way OSM en bâtiment."""
         try:
-            # ID et type
-            osm_id = element.get('id')
-            if not osm_id:
+            tags = way.get('tags', {})
+            
+            # Calculer le centroïde
+            if 'geometry' in way:
+                coords = way['geometry']
+            else:
+                # Calculer depuis les nœuds
+                way_nodes = [nodes.get(node_id) for node_id in way.get('nodes', [])]
+                way_nodes = [n for n in way_nodes if n and 'lat' in n and 'lon' in n]
+                if not way_nodes:
+                    return None
+                coords = [{'lat': n['lat'], 'lon': n['lon']} for n in way_nodes]
+            
+            if not coords:
                 return None
             
-            # ✅ Coordonnées - utiliser center si disponible, sinon calculer
-            lat, lon = None, None
+            # Centroïde
+            avg_lat = sum(c['lat'] for c in coords) / len(coords)
+            avg_lon = sum(c['lon'] for c in coords) / len(coords)
             
-            if 'center' in element:
-                lat = element['center']['lat']
-                lon = element['center']['lon']
-            elif element['type'] == 'node':
-                lat = element.get('lat')
-                lon = element.get('lon')
-            elif 'nodes' in element:
-                # Calculer le centroïde approximatif
-                if element.get('geometry'):
-                    coords = element['geometry']
-                    if coords:
-                        lats = [p['lat'] for p in coords if 'lat' in p]
-                        lons = [p['lon'] for p in coords if 'lon' in p]
-                        if lats and lons:
-                            lat = sum(lats) / len(lats)
-                            lon = sum(lons) / len(lons)
-            
-            if not lat or not lon:
-                return None
-            
-            # ✅ Vérifier que c'est en Malaysia
-            if not self._is_in_malaysia(lat, lon):
-                return None
-            
-            # Tags du bâtiment
-            tags = element.get('tags', {})
-            building_type = tags.get('building', 'yes')
-            
-            # ✅ Normaliser le type de bâtiment pour notre système
-            normalized_type = self._normalize_building_type(building_type, tags)
+            # Estimation de la surface (approximative)
+            area_sqm = self._calculate_polygon_area(coords)
             
             return {
-                'id': f"osm_{element['type']}_{osm_id}",
-                'osm_id': osm_id,
-                'osm_type': element['type'],
-                'lat': lat,
-                'lon': lon,
-                'building_type': normalized_type,
-                'building_original': building_type,
+                'osm_id': f"way/{way['id']}",
+                'osm_type': 'way',
+                'latitude': avg_lat,
+                'longitude': avg_lon,
+                'building_type': self._classify_building_type(tags),
+                'area_sqm': area_sqm,
+                'levels': self._parse_int_tag(tags.get('building:levels')),
+                'height': self._parse_float_tag(tags.get('height')),
                 'name': tags.get('name'),
                 'addr_street': tags.get('addr:street'),
+                'addr_housenumber': tags.get('addr:housenumber'),
+                'addr_postcode': tags.get('addr:postcode'),
                 'addr_city': tags.get('addr:city'),
-                'addr_state': tags.get('addr:state'),
-                'levels': self._parse_numeric_tag(tags.get('building:levels')),
-                'height': self._parse_numeric_tag(tags.get('height')),
-                'roof_material': tags.get('roof:material'),
-                'wall_material': tags.get('wall:material'),
-                'source': 'openstreetmap',
-                'timestamp': datetime.now().isoformat()
+                'tags': tags,
+                'geometry_type': 'polygon',
+                'coordinates': coords
             }
             
         except Exception as e:
-            self.logger.debug(f"🔧 Erreur extraction bâtiment {element.get('id')}: {e}")
+            self.logger.debug(f"Erreur parsing way {way.get('id')}: {e}")
             return None
     
-    def _is_in_malaysia(self, lat: float, lon: float) -> bool:
-        """
-        ✅ Vérifie rapidement si des coordonnées sont en Malaysia.
-        """
-        return (
-            self.malaysia_bounds['south'] <= lat <= self.malaysia_bounds['north'] and
-            self.malaysia_bounds['west'] <= lon <= self.malaysia_bounds['east']
-        )
-    
-    def _normalize_building_type(self, building_type: str, tags: Dict) -> str:
-        """
-        ✅ Normalise les types de bâtiments OSM vers notre classification.
-        """
-        building_type = building_type.lower() if building_type else 'yes'
-        
-        # Mapping optimisé pour Malaysia
-        type_mapping = {
-            # Résidentiel
-            'house': 'residential',
-            'residential': 'residential',
-            'apartments': 'residential',
-            'terrace': 'residential',
-            'detached': 'residential',
-            'semi_detached': 'residential',
-            'bungalow': 'residential',
+    def _parse_relation_to_building(self, relation: Dict) -> Optional[Dict]:
+        """Parse une relation OSM en bâtiment."""
+        try:
+            tags = relation.get('tags', {})
             
-            # Commercial
+            # Pour les relations, utiliser un point approximatif
+            # (dans un vrai cas, il faudrait parser les membres)
+            return {
+                'osm_id': f"relation/{relation['id']}",
+                'osm_type': 'relation',
+                'latitude': 0,  # À calculer depuis les membres
+                'longitude': 0,  # À calculer depuis les membres
+                'building_type': self._classify_building_type(tags),
+                'area_sqm': None,
+                'levels': self._parse_int_tag(tags.get('building:levels')),
+                'height': self._parse_float_tag(tags.get('height')),
+                'name': tags.get('name'),
+                'addr_street': tags.get('addr:street'),
+                'addr_housenumber': tags.get('addr:housenumber'),
+                'addr_postcode': tags.get('addr:postcode'),
+                'addr_city': tags.get('addr:city'),
+                'tags': tags,
+                'geometry_type': 'multipolygon'
+            }
+            
+        except Exception as e:
+            self.logger.debug(f"Erreur parsing relation {relation.get('id')}: {e}")
+            return None
+    
+    def _classify_building_type(self, tags: Dict) -> str:
+        """Classifie le type de bâtiment selon les tags OSM."""
+        building_tag = tags.get('building', 'yes')
+        
+        # Mapping des types OSM vers nos catégories
+        type_mapping = {
+            'house': 'residential',
+            'apartments': 'residential',
+            'residential': 'residential',
+            'detached': 'residential',
+            'terrace': 'residential',
+            'office': 'commercial',
             'commercial': 'commercial',
             'retail': 'commercial',
             'shop': 'commercial',
-            'office': 'commercial',
-            'hotel': 'commercial',
-            'restaurant': 'commercial',
-            
-            # Industrial
-            'industrial': 'industrial',
             'warehouse': 'industrial',
+            'industrial': 'industrial',
             'factory': 'industrial',
-            'manufacture': 'industrial',
-            
-            # Public
             'school': 'public',
             'hospital': 'public',
-            'clinic': 'public',
-            'government': 'public',
-            'public': 'public',
-            'mosque': 'public',
-            'temple': 'public',
-            'church': 'public'
+            'university': 'public',
+            'church': 'religious',
+            'mosque': 'religious',
+            'temple': 'religious'
         }
         
-        # Vérifier d'abord le mapping direct
-        if building_type in type_mapping:
-            return type_mapping[building_type]
-        
-        # ✅ Analyser les autres tags pour déterminer le type
-        if tags.get('amenity') in ['school', 'hospital', 'clinic', 'place_of_worship']:
-            return 'public'
-        elif tags.get('shop') or tags.get('office'):
-            return 'commercial'
-        elif tags.get('industrial'):
-            return 'industrial'
-        
-        # Par défaut, considérer comme résidentiel
-        return 'residential'
+        return type_mapping.get(building_tag.lower(), 'other')
     
-    def _get_malaysia_city_coordinates(self, city_name: str) -> Optional[Dict]:
-        """
-        ✅ Retourne les coordonnées des principales villes malaysiennes.
-        """
-        cities = {
-            'kuala lumpur': {'lat': 3.139, 'lon': 101.687},
-            'george town': {'lat': 5.414, 'lon': 100.333},
-            'ipoh': {'lat': 4.584, 'lon': 101.077},
-            'johor bahru': {'lat': 1.465, 'lon': 103.747},
-            'petaling jaya': {'lat': 3.107, 'lon': 101.607},
-            'shah alam': {'lat': 3.085, 'lon': 101.532},
-            'subang jaya': {'lat': 3.150, 'lon': 101.581},
-            'klang': {'lat': 3.045, 'lon': 101.445},
-            'kajang': {'lat': 2.992, 'lon': 101.791},
-            'seremban': {'lat': 2.726, 'lon': 101.938},
-            'malacca': {'lat': 2.197, 'lon': 102.250},
-            'alor setar': {'lat': 6.121, 'lon': 100.366},
-            'kota bharu': {'lat': 6.133, 'lon': 102.238},
-            'kuantan': {'lat': 3.807, 'lon': 103.326},
-            'kuching': {'lat': 1.553, 'lon': 110.359},
-            'kota kinabalu': {'lat': 5.979, 'lon': 116.075},
-            'sandakan': {'lat': 5.840, 'lon': 118.117},
-            'tawau': {'lat': 4.185, 'lon': 117.893},
-            'miri': {'lat': 4.405, 'lon': 113.987}
-        }
+    def _calculate_polygon_area(self, coords: List[Dict]) -> float:
+        """Calcule l'aire approximative d'un polygone en m²."""
+        if len(coords) < 3:
+            return 0
         
-        city_key = city_name.lower().strip()
-        return cities.get(city_key)
+        # Formule du lacet (shoelace) adaptée pour lat/lon
+        area = 0
+        n = len(coords)
+        
+        for i in range(n):
+            j = (i + 1) % n
+            area += coords[i]['lon'] * coords[j]['lat']
+            area -= coords[j]['lon'] * coords[i]['lat']
+        
+        area = abs(area) / 2.0
+        
+        # Conversion approximative en m² (dépend de la latitude)
+        # 1 degré ≈ 111 km au niveau de la Malaysia
+        avg_lat = sum(c['lat'] for c in coords) / len(coords)
+        lat_to_m = 111000
+        lon_to_m = 111000 * abs(math.cos(math.radians(avg_lat)))
+        
+        return area * lat_to_m * lon_to_m
     
-    def _get_city_radius(self, city_name: str) -> int:
-        """
-        ✅ Retourne un rayon approprié selon la taille de la ville.
-        """
-        city_key = city_name.lower().strip()
-        
-        large_cities = ['kuala lumpur', 'george town', 'johor bahru']
-        medium_cities = ['ipoh', 'petaling jaya', 'shah alam', 'kota kinabalu', 'kuching']
-        
-        if city_key in large_cities:
-            return 8000  # 8km pour les grandes villes
-        elif city_key in medium_cities:
-            return 5000  # 5km pour les villes moyennes
-        else:
-            return 3000  # 3km pour les petites villes
-    
-    def _calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        """
-        ✅ Calcule la distance entre deux points (formule de Haversine).
-        """
-        import math
-        
-        R = 6371000  # Rayon de la Terre en mètres
-        
-        lat1_rad = math.radians(lat1)
-        lon1_rad = math.radians(lon1)
-        lat2_rad = math.radians(lat2)
-        lon2_rad = math.radians(lon2)
-        
-        dlat = lat2_rad - lat1_rad
-        dlon = lon2_rad - lon1_rad
-        
-        a = (math.sin(dlat/2)**2 + 
-             math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon/2)**2)
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-        
-        return R * c
-    
-    def _parse_numeric_tag(self, value: str) -> Optional[float]:
-        """
-        ✅ Parse une valeur numérique depuis les tags OSM.
-        """
+    def _parse_int_tag(self, value: str) -> Optional[int]:
+        """Parse un tag entier."""
         if not value:
             return None
-        
         try:
-            # Nettoyer la valeur (supprimer unités, etc.)
-            import re
-            clean_value = re.sub(r'[^0-9.-]', '', str(value))
-            return float(clean_value) if clean_value else None
+            return int(float(value))
         except:
             return None
     
-    # ✅ MÉTHODES DE CACHE ET UTILITAIRES (identiques à la version précédente)
-    def _get_config_value(self, key: str, default: Any) -> Any:
-        """Récupère une valeur de configuration."""
-        if self.config and hasattr(self.config, key):
-            return getattr(self.config, key)
-        return default
-    
-    def _execute_overpass_query(self, query: str, cache_key: str) -> Dict:
-        """Exécute une requête Overpass avec gestion du cache."""
-        self.request_stats['total_requests'] += 1
-        
-        # Vérifier le cache
-        if self.cache_enabled:
-            cached_data = self._get_cached_data(cache_key)
-            if cached_data:
-                self.request_stats['cache_hits'] += 1
-                return cached_data
-        
-        self.request_stats['cache_misses'] += 1
-        
-        # Exécuter la requête avec retry
-        for attempt in range(self.max_retries):
-            try:
-                self.logger.debug(f"🔄 Tentative {attempt + 1}/{self.max_retries}")
-                
-                response = requests.post(
-                    self.overpass_url,
-                    data=query,
-                    headers={'Content-Type': 'text/plain; charset=utf-8'},
-                    timeout=self.timeout
-                )
-                
-                response.raise_for_status()
-                data = response.json()
-                
-                # Sauvegarder en cache
-                if self.cache_enabled:
-                    self._save_to_cache(cache_key, data)
-                
-                return data
-                
-            except requests.exceptions.Timeout:
-                self.logger.warning(f"⏰ Timeout tentative {attempt + 1}")
-                if attempt < self.max_retries - 1:
-                    time.sleep(2 ** attempt)
-                    
-            except Exception as e:
-                self.logger.warning(f"🌐 Erreur tentative {attempt + 1}: {e}")
-                if attempt < self.max_retries - 1:
-                    time.sleep(2 ** attempt)
-        
-        self.request_stats['failed_requests'] += 1
-        raise Exception(f"Échec requête Overpass après {self.max_retries} tentatives")
-    
-    def _get_cached_data(self, cache_key: str) -> Optional[Dict]:
-        """Récupère des données depuis le cache."""
+    def _parse_float_tag(self, value: str) -> Optional[float]:
+        """Parse un tag float."""
+        if not value:
+            return None
         try:
-            cache_file = self.cache_dir / f"{cache_key}.json"
+            # Supprimer les unités communes
+            value = value.replace(' m', '').replace('m', '').replace(' ft', '').replace('ft', '')
+            return float(value)
+        except:
+            return None
+    
+    def _deduplicate_buildings(self, buildings: List[Dict]) -> List[Dict]:
+        """Supprime les doublons basés sur OSM ID."""
+        seen_ids = set()
+        unique_buildings = []
+        
+        for building in buildings:
+            osm_id = building.get('osm_id')
+            if osm_id and osm_id not in seen_ids:
+                seen_ids.add(osm_id)
+                unique_buildings.append(building)
+            elif not osm_id:
+                # Bâtiment sans ID, garder quand même
+                unique_buildings.append(building)
+        
+        removed_count = len(buildings) - len(unique_buildings)
+        if removed_count > 0:
+            self.logger.info(f"🔄 Déduplication: {removed_count} doublons supprimés")
+        
+        return unique_buildings
+    
+    def _get_next_overpass_url(self) -> str:
+        """Récupère la prochaine URL Overpass (load balancing)."""
+        url = self.overpass_urls[self.current_url_index]
+        self.current_url_index = (self.current_url_index + 1) % len(self.overpass_urls)
+        return url
+    
+    def _get_from_cache(self, cache_key: str) -> Optional[List[Dict]]:
+        """Récupère des données du cache compressé."""
+        if not self.cache_enabled:
+            return None
+        
+        cache_file = self.cache_dir / f"{cache_key}.pkl.gz"
+        
+        try:
             if cache_file.exists():
-                # Vérifier la fraîcheur
+                # Vérifier l'âge du cache
                 file_time = datetime.fromtimestamp(cache_file.stat().st_mtime)
                 if datetime.now() - file_time < self.cache_duration:
-                    with open(cache_file, 'r', encoding='utf-8') as f:
-                        return json.load(f)
-            return None
-        except Exception:
-            return None
-    
-    def _save_to_cache(self, cache_key: str, data: Dict):
-        """Sauvegarde des données en cache."""
-        try:
-            cache_file = self.cache_dir / f"{cache_key}.json"
-            with open(cache_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False)
+                    with gzip.open(cache_file, 'rb') as f:
+                        data = pickle.load(f)
+                    return data
         except Exception as e:
-            self.logger.warning(f"⚠️ Erreur sauvegarde cache: {e}")
+            self.logger.warning(f"Erreur lecture cache {cache_key}: {e}")
+        
+        return None
     
-    def get_statistics(self) -> Dict:
-        """Retourne les statistiques du service."""
-        return {
-            'request_stats': self.request_stats.copy(),
-            'cache_info': {
-                'enabled': self.cache_enabled,
-                'directory': str(self.cache_dir),
-                'duration_hours': self.cache_duration.total_seconds() / 3600
-            },
-            'configuration': {
-                'overpass_url': self.overpass_url,
-                'timeout': self.timeout,
-                'max_retries': self.max_retries
-            }
-        }
+    def _save_to_cache(self, cache_key: str, data: List[Dict]):
+        """Sauvegarde des données dans le cache compressé."""
+        if not self.cache_enabled or not data:
+            return
+        
+        cache_file = self.cache_dir / f"{cache_key}.pkl.gz"
+        
+        try:
+            with gzip.open(cache_file, 'wb') as f:
+                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+        except Exception as e:
+            self.logger.warning(f"Erreur écriture cache {cache_key}: {e}")
+    
+    def _get_config_value(self, key: str, default: Any) -> Any:
+        """Récupère une valeur de configuration."""
+        if self.config:
+            return self.config.get(key, default)
+        return default
+    
+    def _log_final_stats(self):
+        """Affiche les statistiques finales."""
+        duration = (self.stats['end_time'] - self.stats['start_time']).total_seconds()
+        
+        self.logger.info("📊 STATISTIQUES FINALES:")
+        self.logger.info(f"   🏢 Bâtiments récupérés: {self.stats['total_buildings']:,}")
+        self.logger.info(f"   ⏱️  Durée totale: {duration:.1f}s")
+        self.logger.info(f"   📡 Requêtes totales: {self.stats['total_requests']}")
+        self.logger.info(f"   🚀 Requêtes parallèles: {self.stats['parallel_requests']}")
+        self.logger.info(f"   💾 Cache hits: {self.stats['cache_hits']}")
+        self.logger.info(f"   ❌ Échecs: {self.stats['failed_requests']}")
+        self.logger.info(f"   🗺️  Zones traitées: {self.stats['zones_processed']}")
+        
+        if duration > 0:
+            rate = self.stats['total_buildings'] / duration
+            self.logger.info(f"   📈 Débit: {rate:.1f} bâtiments/seconde")
+    
+    # Méthodes synchrones pour compatibilité
+    def get_all_buildings_malaysia(self) -> List[Dict]:
+        """Version synchrone de la récupération exhaustive."""
+        return asyncio.run(self.get_all_buildings_malaysia_async())
+    
+    def get_buildings_for_city(self, city: str, limit: Optional[int] = None) -> List[Dict]:
+        """Récupère les bâtiments pour une ville spécifique."""
+        if city.lower() == 'malaysia':
+            return self.get_all_buildings_malaysia()
+        
+        # Recherche dans les états définis
+        city_lower = city.lower().replace(' ', '_')
+        if city_lower in self.malaysia_states:
+            bounds = self.malaysia_states[city_lower]
+            return asyncio.run(self._get_buildings_for_bounds_async(None, city_lower, bounds))
+        
+        # Sinon, requête classique par nom de ville
+        return self._get_buildings_by_city_name(city, limit)
+    
+    def _get_buildings_by_city_name(self, city: str, limit: Optional[int]) -> List[Dict]:
+        """Récupération classique par nom de ville (fallback)."""
+        # Cette méthode peut être implémentée pour les villes non définies
+        self.logger.warning(f"Ville '{city}' non trouvée dans les états prédéfinis")
+        return []
+    
+    def get_stats(self) -> Dict:
+        """Retourne les statistiques actuelles."""
+        return self.stats.copy()
     
     def clear_cache(self):
-        """Vide le cache OSM."""
+        """Vide le cache."""
         try:
-            if self.cache_dir.exists():
-                for cache_file in self.cache_dir.glob('*.json'):
-                    cache_file.unlink()
-                self.logger.info("🗑️ Cache OSM vidé")
+            for cache_file in self.cache_dir.glob("*.pkl.gz"):
+                cache_file.unlink()
+            self.logger.info("🗑️ Cache vidé")
         except Exception as e:
-            self.logger.error(f"❌ Erreur vidage cache: {e}")
-
-
-# Export de la classe principale
-__all__ = ['OSMService']
+            self.logger.error(f"Erreur vidage cache: {e}")
+    
+    def get_cache_info(self) -> Dict:
+        """Retourne les informations du cache."""
+        cache_files = list(self.cache_dir.glob("*.pkl.gz"))
+        total_size = sum(f.stat().st_size for f in cache_files)
+        
+        return {
+            'files_count': len(cache_files),
+            'total_size_bytes': total_size,
+            'total_size_mb': round(total_size / (1024 * 1024), 2),
+            'cache_enabled': self.cache_enabled,
+            'cache_duration_hours': self.cache_duration.total_seconds() / 3600
+        }

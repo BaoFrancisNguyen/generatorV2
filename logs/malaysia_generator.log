@@ -2331,3 +2331,225 @@
 ℹ️ 2025-08-10 05:48:51 - app - INFO - ✅ Application Flask initialisée avec succès
 ⚠️ 2025-08-10 05:48:51 - werkzeug - WARNING -  * Debugger is active!
 ℹ️ 2025-08-10 05:48:53 - app.routes.main - INFO - 🏠 Accès à la page d'accueil
+ℹ️ 2025-08-10 06:23:04 - app.utils.logger - INFO - 📝 Système de logging configuré - Niveau: DEBUG
+ℹ️ 2025-08-10 06:23:04 - app.utils.logger - INFO - 📁 Logs sauvegardés dans: C:\Users\baofr\Desktop\generatorV2\generatorV2\logs
+ℹ️ 2025-08-10 06:23:04 - app - INFO - 🚀 Initialisation de l'application en mode development
+ℹ️ 2025-08-10 06:23:04 - app - INFO - ✅ CORS activé pour le développement
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.address`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.address` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.automotive`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.automotive` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.bank`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Specified locale `en_US` is not available for provider `faker.providers.bank`. Locale reset to `en_GB` for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.barcode`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.barcode` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.color`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.color` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.company`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.company` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.credit_card`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.credit_card` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.currency`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.currency` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.date_time`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.date_time` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.doi` does not feature localization. Specified locale `en_US` is not utilized for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.emoji` does not feature localization. Specified locale `en_US` is not utilized for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.file` does not feature localization. Specified locale `en_US` is not utilized for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.geo`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.geo` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.internet`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.internet` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.isbn`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.isbn` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.job`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.job` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.lorem`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.lorem` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.misc`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.misc` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.passport`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.passport` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.person`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.person` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.phone_number`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.phone_number` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.profile` does not feature localization. Specified locale `en_US` is not utilized for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.python` does not feature localization. Specified locale `en_US` is not utilized for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.sbn` does not feature localization. Specified locale `en_US` is not utilized for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.ssn`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.ssn` has been localized to `en_US`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.user_agent` does not feature localization. Specified locale `en_US` is not utilized for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.address`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.address` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.automotive`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.automotive` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.bank`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.bank`. Locale reset to `en_GB` for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.barcode`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.barcode`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.color`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.color` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.company`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.company` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.credit_card`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.credit_card`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.currency`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.currency`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.date_time`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.date_time` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.doi` does not feature localization. Specified locale `id_ID` is not utilized for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.emoji` does not feature localization. Specified locale `id_ID` is not utilized for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.file` does not feature localization. Specified locale `id_ID` is not utilized for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.geo`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.geo`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.internet`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.internet` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.isbn`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.isbn`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.job`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.job`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.lorem`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.lorem`. Locale reset to `la` for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.misc`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.misc`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.passport`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.passport`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.person`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.person` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.phone_number`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.phone_number` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.profile` does not feature localization. Specified locale `id_ID` is not utilized for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.python` does not feature localization. Specified locale `id_ID` is not utilized for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.sbn` does not feature localization. Specified locale `id_ID` is not utilized for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.ssn`.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.ssn`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:04 - faker.factory - DEBUG - Provider `faker.providers.user_agent` does not feature localization. Specified locale `id_ID` is not utilized for this provider.
+ℹ️ 2025-08-10 06:23:04 - app.utils.malaysia_data - INFO - ✅ Données Malaysia chargées: 28 villes
+ℹ️ 2025-08-10 06:23:05 - app.utils.energy_patterns - INFO - ✅ Générateur de patterns énergétiques initialisé
+ℹ️ 2025-08-10 06:23:05 - app.services.data_generator - INFO - ✅ Générateur de données énergétiques Malaysia initialisé
+ℹ️ 2025-08-10 06:23:05 - app - INFO - ✅ Service générateur de données initialisé
+ℹ️ 2025-08-10 06:23:05 - app.services.osm_service - INFO - 🚀 Service OSM ULTRA-OPTIMISÉ v4.0 initialisé
+ℹ️ 2025-08-10 06:23:05 - app - INFO - ✅ Service OSM initialisé
+ℹ️ 2025-08-10 06:23:05 - app.services.validation_service - INFO - ✅ Service de validation initialisé
+ℹ️ 2025-08-10 06:23:05 - app - INFO - ✅ Service de validation initialisé
+ℹ️ 2025-08-10 06:23:05 - app.services.export_service - INFO - 🚀 ExportService initialisé - Répertoire: C:\Users\baofr\Desktop\generatorV2\generatorV2\data\generated
+ℹ️ 2025-08-10 06:23:05 - app - INFO - ✅ Service d'export initialisé
+ℹ️ 2025-08-10 06:23:05 - app - INFO - ✅ Tous les blueprints enregistrés
+🔧 2025-08-10 06:23:05 - app - DEBUG - 📁 Dossier créé/vérifié: C:\Users\baofr\Desktop\generatorV2\generatorV2\data\generated
+🔧 2025-08-10 06:23:05 - app - DEBUG - 📁 Dossier créé/vérifié: C:\Users\baofr\Desktop\generatorV2\generatorV2\data\cache
+🔧 2025-08-10 06:23:05 - app - DEBUG - 📁 Dossier créé/vérifié: C:\Users\baofr\Desktop\generatorV2\generatorV2\logs
+ℹ️ 2025-08-10 06:23:05 - app - INFO - ✅ Tous les dossiers requis sont prêts
+ℹ️ 2025-08-10 06:23:05 - app - INFO - ✅ Application Flask initialisée avec succès
+ℹ️ 2025-08-10 06:23:05 - app.utils.logger - INFO - 📝 Système de logging configuré - Niveau: DEBUG
+ℹ️ 2025-08-10 06:23:05 - app.utils.logger - INFO - 📁 Logs sauvegardés dans: C:\Users\baofr\Desktop\generatorV2\generatorV2\logs
+ℹ️ 2025-08-10 06:23:05 - app - INFO - 🚀 Initialisation de l'application en mode development
+ℹ️ 2025-08-10 06:23:05 - app - INFO - ✅ CORS activé pour le développement
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.address`.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Provider `faker.providers.address` has been localized to `en_US`.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.automotive`.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Provider `faker.providers.automotive` has been localized to `en_US`.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.bank`.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Specified locale `en_US` is not available for provider `faker.providers.bank`. Locale reset to `en_GB` for this provider.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.barcode`.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Provider `faker.providers.barcode` has been localized to `en_US`.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.color`.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Provider `faker.providers.color` has been localized to `en_US`.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.company`.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Provider `faker.providers.company` has been localized to `en_US`.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.credit_card`.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Provider `faker.providers.credit_card` has been localized to `en_US`.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.currency`.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Provider `faker.providers.currency` has been localized to `en_US`.
+🔧 2025-08-10 06:23:05 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.date_time`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.date_time` has been localized to `en_US`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.doi` does not feature localization. Specified locale `en_US` is not utilized for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.emoji` does not feature localization. Specified locale `en_US` is not utilized for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.file` does not feature localization. Specified locale `en_US` is not utilized for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.geo`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.geo` has been localized to `en_US`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.internet`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.internet` has been localized to `en_US`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.isbn`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.isbn` has been localized to `en_US`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.job`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.job` has been localized to `en_US`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.lorem`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.lorem` has been localized to `en_US`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.misc`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.misc` has been localized to `en_US`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.passport`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.passport` has been localized to `en_US`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.person`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.person` has been localized to `en_US`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.phone_number`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.phone_number` has been localized to `en_US`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.profile` does not feature localization. Specified locale `en_US` is not utilized for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.python` does not feature localization. Specified locale `en_US` is not utilized for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.sbn` does not feature localization. Specified locale `en_US` is not utilized for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `en_US` in provider `faker.providers.ssn`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.ssn` has been localized to `en_US`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.user_agent` does not feature localization. Specified locale `en_US` is not utilized for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.address`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.address` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.automotive`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.automotive` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.bank`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.bank`. Locale reset to `en_GB` for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.barcode`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.barcode`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.color`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.color` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.company`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.company` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.credit_card`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.credit_card`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.currency`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.currency`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.date_time`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.date_time` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.doi` does not feature localization. Specified locale `id_ID` is not utilized for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.emoji` does not feature localization. Specified locale `id_ID` is not utilized for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.file` does not feature localization. Specified locale `id_ID` is not utilized for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.geo`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.geo`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.internet`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.internet` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.isbn`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.isbn`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.job`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.job`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.lorem`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.lorem`. Locale reset to `la` for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.misc`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.misc`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.passport`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.passport`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.person`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.person` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.phone_number`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.phone_number` has been localized to `id_ID`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.profile` does not feature localization. Specified locale `id_ID` is not utilized for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.python` does not feature localization. Specified locale `id_ID` is not utilized for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.sbn` does not feature localization. Specified locale `id_ID` is not utilized for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Looking for locale `id_ID` in provider `faker.providers.ssn`.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Specified locale `id_ID` is not available for provider `faker.providers.ssn`. Locale reset to `en_US` for this provider.
+🔧 2025-08-10 06:23:06 - faker.factory - DEBUG - Provider `faker.providers.user_agent` does not feature localization. Specified locale `id_ID` is not utilized for this provider.
+ℹ️ 2025-08-10 06:23:06 - app.utils.malaysia_data - INFO - ✅ Données Malaysia chargées: 28 villes
+ℹ️ 2025-08-10 06:23:06 - app.utils.energy_patterns - INFO - ✅ Générateur de patterns énergétiques initialisé
+ℹ️ 2025-08-10 06:23:06 - app.services.data_generator - INFO - ✅ Générateur de données énergétiques Malaysia initialisé
+ℹ️ 2025-08-10 06:23:06 - app - INFO - ✅ Service générateur de données initialisé
+ℹ️ 2025-08-10 06:23:06 - app.services.osm_service - INFO - 🚀 Service OSM ULTRA-OPTIMISÉ v4.0 initialisé
+ℹ️ 2025-08-10 06:23:06 - app - INFO - ✅ Service OSM initialisé
+ℹ️ 2025-08-10 06:23:06 - app.services.validation_service - INFO - ✅ Service de validation initialisé
+ℹ️ 2025-08-10 06:23:06 - app - INFO - ✅ Service de validation initialisé
+ℹ️ 2025-08-10 06:23:06 - app.services.export_service - INFO - 🚀 ExportService initialisé - Répertoire: C:\Users\baofr\Desktop\generatorV2\generatorV2\data\generated
+ℹ️ 2025-08-10 06:23:06 - app - INFO - ✅ Service d'export initialisé
+ℹ️ 2025-08-10 06:23:06 - app - INFO - ✅ Tous les blueprints enregistrés
+🔧 2025-08-10 06:23:06 - app - DEBUG - 📁 Dossier créé/vérifié: C:\Users\baofr\Desktop\generatorV2\generatorV2\data\generated
+🔧 2025-08-10 06:23:06 - app - DEBUG - 📁 Dossier créé/vérifié: C:\Users\baofr\Desktop\generatorV2\generatorV2\data\cache
+🔧 2025-08-10 06:23:06 - app - DEBUG - 📁 Dossier créé/vérifié: C:\Users\baofr\Desktop\generatorV2\generatorV2\logs
+ℹ️ 2025-08-10 06:23:06 - app - INFO - ✅ Tous les dossiers requis sont prêts
+ℹ️ 2025-08-10 06:23:06 - app - INFO - ✅ Application Flask initialisée avec succès
+⚠️ 2025-08-10 06:23:06 - werkzeug - WARNING -  * Debugger is active!
+ℹ️ 2025-08-10 06:23:09 - app.routes.main - INFO - 🏠 Accès à la page d'accueil
