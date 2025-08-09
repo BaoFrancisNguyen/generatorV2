@@ -333,5 +333,423 @@ class TimeSeries:
         return {
             'unique_id': self.unique_id,
             'timestamp': self.timestamp.isoformat(),
-            'y': self.consumption_kwh,  # Nom de colonne standard pour compatibilité
+            'y': self.'consumption_kwh': self.consumption_kwh,
+            'quality_score': self.quality_score,
+            'anomaly_flag': self.anomaly_flag,
+            'validation_status': self.validation_status,
+            'weather_context': self.weather_context,
+            'consumption_category': self.consumption_category,
+            'time_features': self.time_features,
+            'metadata': self.metadata
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'TimeSeries':
+        """
+        Crée une instance TimeSeries depuis un dictionnaire.
+        
+        Args:
+            data: Dictionnaire avec les données de l'observation
+            
+        Returns:
+            Instance TimeSeries
+        """
+        # Gérer différents noms de colonnes pour la consommation
+        consumption_kwh = data.get('y') or data.get('consumption_kwh') or data.get('value', 0.0)
+        
+        # Parser le timestamp si c'est une string
+        timestamp = data.get('timestamp')
+        if isinstance(timestamp, str):
+            timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        
+        return cls(
+            unique_id=data.get('unique_id'),
+            timestamp=timestamp,
+            consumption_kwh=float(consumption_kwh),
+            quality_score=data.get('quality_score', 100.0),
+            anomaly_flag=data.get('anomaly_flag', False),
+            validation_status=data.get('validation_status', 'valid'),
+            weather_context=data.get('weather_context'),
+            metadata=data.get('metadata', {})
+        )
+    
+    def __str__(self) -> str:
+        """Représentation string de l'observation."""
+        return (f"TimeSeries({self.unique_id}, {self.timestamp.strftime('%Y-%m-%d %H:%M')}, "
+                f"{self.consumption_kwh}kWh, {self.validation_status})")
+    
+    def __repr__(self) -> str:
+        """Représentation détaillée de l'observation."""
+        return (f"TimeSeries(unique_id='{self.unique_id}', "
+                f"timestamp='{self.timestamp.isoformat()}', "
+                f"consumption_kwh={self.consumption_kwh}, "
+                f"quality_score={self.quality_score})")
+
+
+@dataclass 
+class TimeSeriesCollection:
+    """
+    Collection de séries temporelles avec méthodes d'analyse et manipulation.
+    
+    Attributes:
+        observations: Liste des observations TimeSeries
+        building_id: Identifiant du bâtiment associé
+        metadata: Métadonnées de la collection
+    """
+    
+    observations: List[TimeSeries]
+    building_id: str = ''
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def __post_init__(self):
+        """Initialisation après création."""
+        if self.observations:
+            # Trier par timestamp
+            self.observations.sort(key=lambda x: x.timestamp)
+            
+            # Vérifier la cohérence des unique_id
+            unique_ids = set(obs.unique_id for obs in self.observations)
+            if len(unique_ids) > 1:
+                raise ValueError(f"Observations avec des unique_id différents: {unique_ids}")
+            
+            if not self.building_id and self.observations:
+                self.building_id = self.observations[0].unique_id
+    
+    @property
+    def start_date(self) -> Optional[datetime]:
+        """Date de début de la série."""
+        return self.observations[0].timestamp if self.observations else None
+    
+    @property
+    def end_date(self) -> Optional[datetime]:
+        """Date de fin de la série."""
+        return self.observations[-1].timestamp if self.observations else None
+    
+    @property
+    def duration_days(self) -> int:
+        """Durée de la série en jours."""
+        if self.start_date and self.end_date:
+            return (self.end_date - self.start_date).days
+        return 0
+    
+    @property
+    def total_observations(self) -> int:
+        """Nombre total d'observations."""
+        return len(self.observations)
+    
+    @property
+    def total_consumption(self) -> float:
+        """Consommation totale en kWh."""
+        return sum(obs.consumption_kwh for obs in self.observations)
+    
+    @property
+    def average_consumption(self) -> float:
+        """Consommation moyenne en kWh."""
+        if self.observations:
+            return self.total_consumption / len(self.observations)
+        return 0.0
+    
+    @property
+    def peak_consumption(self) -> float:
+        """Consommation maximale en kWh."""
+        if self.observations:
+            return max(obs.consumption_kwh for obs in self.observations)
+        return 0.0
+    
+    @property
+    def valid_observations_count(self) -> int:
+        """Nombre d'observations valides."""
+        return len([obs for obs in self.observations if obs.validation_status == 'valid'])
+    
+    @property
+    def anomalies_count(self) -> int:
+        """Nombre d'anomalies détectées."""
+        return len([obs for obs in self.observations if obs.is_anomaly])
+    
+    def add_observation(self, observation: TimeSeries):
+        """
+        Ajoute une observation à la collection.
+        
+        Args:
+            observation: Observation à ajouter
+        """
+        if self.observations and observation.unique_id != self.building_id:
+            raise ValueError(f"unique_id {observation.unique_id} ne correspond pas au building_id {self.building_id}")
+        
+        self.observations.append(observation)
+        self.observations.sort(key=lambda x: x.timestamp)
+        
+        if not self.building_id:
+            self.building_id = observation.unique_id
+    
+    def get_observations_by_period(self, start_date: datetime, end_date: datetime) -> List[TimeSeries]:
+        """
+        Récupère les observations dans une période donnée.
+        
+        Args:
+            start_date: Date de début
+            end_date: Date de fin
+            
+        Returns:
+            Liste des observations dans la période
+        """
+        return [
+            obs for obs in self.observations
+            if start_date <= obs.timestamp <= end_date
+        ]
+    
+    def get_observations_by_hours(self, hours: List[int]) -> List[TimeSeries]:
+        """
+        Récupère les observations pour des heures spécifiques.
+        
+        Args:
+            hours: Liste des heures (0-23)
+            
+        Returns:
+            Liste des observations
+        """
+        return [
+            obs for obs in self.observations
+            if obs.timestamp.hour in hours
+        ]
+    
+    def get_peak_hours_consumption(self) -> List[TimeSeries]:
+        """Récupère les observations aux heures de pointe."""
+        peak_hours = [7, 8, 18, 19, 20]  # Heures de pointe génériques
+        return self.get_observations_by_hours(peak_hours)
+    
+    def get_off_peak_consumption(self) -> List[TimeSeries]:
+        """Récupère les observations aux heures creuses."""
+        off_peak_hours = [1, 2, 3, 4, 5, 6]  # Heures creuses
+        return self.get_observations_by_hours(off_peak_hours)
+    
+    def get_weekend_consumption(self) -> List[TimeSeries]:
+        """Récupère les observations de weekend."""
+        return [
+            obs for obs in self.observations
+            if obs.time_features.get('is_weekend', False)
+        ]
+    
+    def get_weekday_consumption(self) -> List[TimeSeries]:
+        """Récupère les observations de semaine."""
+        return [
+            obs for obs in self.observations
+            if not obs.time_features.get('is_weekend', False)
+        ]
+    
+    def calculate_daily_totals(self) -> Dict[str, float]:
+        """
+        Calcule les totaux journaliers de consommation.
+        
+        Returns:
+            Dictionnaire {date: consommation_totale}
+        """
+        daily_totals = {}
+        
+        for obs in self.observations:
+            date_key = obs.timestamp.date().isoformat()
+            if date_key not in daily_totals:
+                daily_totals[date_key] = 0.0
+            daily_totals[date_key] += obs.consumption_kwh
+        
+        return daily_totals
+    
+    def calculate_hourly_averages(self) -> Dict[int, float]:
+        """
+        Calcule les moyennes horaires de consommation.
+        
+        Returns:
+            Dictionnaire {heure: consommation_moyenne}
+        """
+        hourly_data = {}
+        
+        for obs in self.observations:
+            hour = obs.timestamp.hour
+            if hour not in hourly_data:
+                hourly_data[hour] = []
+            hourly_data[hour].append(obs.consumption_kwh)
+        
+        return {
+            hour: sum(values) / len(values)
+            for hour, values in hourly_data.items()
+        }
+    
+    def detect_anomalies(self, threshold_factor: float = 2.0) -> List[TimeSeries]:
+        """
+        Détecte les anomalies statistiques dans la série.
+        
+        Args:
+            threshold_factor: Facteur de seuil (écarts-types)
+            
+        Returns:
+            Liste des observations anormales
+        """
+        if len(self.observations) < 10:
+            return []  # Pas assez de données pour détecter des anomalies
+        
+        # Calculer moyenne et écart-type
+        consumptions = [obs.consumption_kwh for obs in self.observations]
+        mean_consumption = sum(consumptions) / len(consumptions)
+        variance = sum((x - mean_consumption) ** 2 for x in consumptions) / len(consumptions)
+        std_deviation = variance ** 0.5
+        
+        # Détecter les valeurs aberrantes
+        threshold = threshold_factor * std_deviation
+        anomalies = []
+        
+        for obs in self.observations:
+            if abs(obs.consumption_kwh - mean_consumption) > threshold:
+                anomalies.append(obs)
+        
+        return anomalies
+    
+    def interpolate_missing_values(self, method: str = 'linear') -> 'TimeSeriesCollection':
+        """
+        Interpole les valeurs manquantes dans la série.
+        
+        Args:
+            method: Méthode d'interpolation ('linear', 'previous', 'next')
+            
+        Returns:
+            Nouvelle collection avec valeurs interpolées
+        """
+        if not self.observations:
+            return TimeSeriesCollection([], self.building_id, self.metadata.copy())
+        
+        interpolated_observations = []
+        
+        for i, obs in enumerate(self.observations):
+            interpolated_observations.append(obs)
+            
+            # Vérifier s'il y a un gap avec l'observation suivante
+            if i < len(self.observations) - 1:
+                next_obs = self.observations[i + 1]
+                time_diff = next_obs.timestamp - obs.timestamp
+                
+                # Si gap > 2 heures, interpol
+                if time_diff.total_seconds() > 7200:  # 2 heures
+                    if method == 'linear':
+                        # Interpolation linéaire simple
+                        hours_gap = int(time_diff.total_seconds() / 3600)
+                        for h in range(1, hours_gap):
+                            ratio = h / hours_gap
+                            interpolated_timestamp = obs.timestamp + timedelta(hours=h)
+                            interpolated_consumption = (
+                                obs.consumption_kwh + 
+                                (next_obs.consumption_kwh - obs.consumption_kwh) * ratio
+                            )
+                            
+                            interpolated_obs = TimeSeries(
+                                unique_id=obs.unique_id,
+                                timestamp=interpolated_timestamp,
+                                consumption_kwh=round(interpolated_consumption, 3),
+                                quality_score=70.0,  # Score réduit pour interpolation
+                                validation_status='interpolated',
+                                metadata={'interpolation_method': method}
+                            )
+                            interpolated_observations.append(interpolated_obs)
+        
+        return TimeSeriesCollection(
+            interpolated_observations, 
+            self.building_id, 
+            {**self.metadata, 'interpolated': True}
+        )
+    
+    def get_statistics(self) -> Dict[str, Any]:
+        """
+        Calcule les statistiques complètes de la série.
+        
+        Returns:
+            Dictionnaire des statistiques
+        """
+        if not self.observations:
+            return {}
+        
+        consumptions = [obs.consumption_kwh for obs in self.observations]
+        consumptions.sort()
+        
+        n = len(consumptions)
+        mean = sum(consumptions) / n
+        variance = sum((x - mean) ** 2 for x in consumptions) / n
+        std_dev = variance ** 0.5
+        
+        return {
+            'total_observations': n,
+            'period_days': self.duration_days,
+            'total_consumption_kwh': round(self.total_consumption, 2),
+            'average_consumption_kwh': round(mean, 2),
+            'median_consumption_kwh': round(consumptions[n//2], 2),
+            'min_consumption_kwh': round(min(consumptions), 2),
+            'max_consumption_kwh': round(max(consumptions), 2),
+            'std_deviation': round(std_dev, 2),
+            'coefficient_variation': round(std_dev / mean if mean > 0 else 0, 3),
+            'valid_observations': self.valid_observations_count,
+            'anomalies_count': self.anomalies_count,
+            'quality_percentage': round(self.valid_observations_count / n * 100, 1),
+            'start_date': self.start_date.isoformat() if self.start_date else None,
+            'end_date': self.end_date.isoformat() if self.end_date else None
+        }
+    
+    def to_dataframe(self):
+        """
+        Convertit la collection en DataFrame pandas.
+        
+        Returns:
+            DataFrame pandas
+        """
+        import pandas as pd
+        
+        data = [obs.to_dict() for obs in self.observations]
+        return pd.DataFrame(data)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convertit la collection en dictionnaire.
+        
+        Returns:
+            Dictionnaire représentant la collection
+        """
+        return {
+            'building_id': self.building_id,
+            'total_observations': self.total_observations,
+            'statistics': self.get_statistics(),
+            'metadata': self.metadata,
+            'observations': [obs.to_dict() for obs in self.observations]
+        }
+    
+    @classmethod
+    def from_dataframe(cls, df, building_id: str = '') -> 'TimeSeriesCollection':
+        """
+        Crée une collection depuis un DataFrame pandas.
+        
+        Args:
+            df: DataFrame pandas
+            building_id: Identifiant du bâtiment
+            
+        Returns:
+            Instance TimeSeriesCollection
+        """
+        observations = []
+        
+        for _, row in df.iterrows():
+            obs = TimeSeries.from_dict(row.to_dict())
+            observations.append(obs)
+        
+        return cls(observations, building_id)
+    
+    def __len__(self) -> int:
+        """Nombre d'observations dans la collection."""
+        return len(self.observations)
+    
+    def __iter__(self):
+        """Itérateur sur les observations."""
+        return iter(self.observations)
+    
+    def __getitem__(self, index) -> TimeSeries:
+        """Accès par index."""
+        return self.observations[index]
+
+
+# Export des classes principales
+__all__ = ['TimeSeries', 'TimeSeriesCollection']
             
