@@ -1,0 +1,589 @@
+<!-- 
+Fichier: templates/index_with_map.html
+Template d'intégration pour ajouter la cartographie OSM à l'application existante
+
+INSTRUCTIONS D'INSTALLATION:
+1. Sauvegarder votre fichier templates/index.html actuel
+2. Remplacer le contenu par ce template OU
+3. Ajouter les sections nécessaires à votre template existant
+
+FICHIERS REQUIS:
+- static/osm_map.js (le module de cartographie)
+- static/professional_styles.css (les styles professionnels)
+- Leaflet CSS/JS (chargés automatiquement)
+-->
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Générateur de Données Malaysia - Avec Cartographie OSM</title>
+    
+    <!-- Styles existants (garder vos styles actuels) -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    
+    <!-- NOUVEAU: Styles professionnels -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='professional_styles.css') }}">
+    
+    <!-- NOUVEAU: Leaflet CSS (chargé automatiquement par le module si nécessaire) -->
+    <!-- Les bibliothèques sont chargées dynamiquement par osm_map.js -->
+</head>
+<body>
+    <!-- Header professionnel amélioré -->
+    <header class="main-header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo-section">
+                    <div class="logo-icon">🇲🇾</div>
+                    <div class="logo-text">
+                        <h1>Malaysia Data Generator</h1>
+                        <p>Générateur de données électriques avec cartographie OSM</p>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <div class="badge badge-success" id="systemStatus">
+                        ✅ Système opérationnel
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Section de contrôles principaux -->
+        <div class="professional-card">
+            <div class="card-header">
+                <h3 class="card-title">
+                    ⚙️ Configuration de génération
+                </h3>
+                <div class="card-badge">Paramètres</div>
+            </div>
+
+            <div class="grid grid-2">
+                <!-- Paramètres de base (garder votre logique existante) -->
+                <div class="form-section">
+                    <h3>📊 Paramètres de base</h3>
+                    
+                    <div class="form-group">
+                        <label for="numBuildings">Nombre de bâtiments</label>
+                        <input type="number" id="numBuildings" class="form-control" 
+                               value="100" min="1" max="10000">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="startDate">Date de début</label>
+                        <input type="date" id="startDate" class="form-control" 
+                               value="2024-01-01">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="endDate">Date de fin</label>
+                        <input type="date" id="endDate" class="form-control" 
+                               value="2024-12-31">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="freq">Fréquence des données</label>
+                        <select id="freq" class="form-control">
+                            <option value="H">Horaire</option>
+                            <option value="D">Quotidienne</option>
+                            <option value="W">Hebdomadaire</option>
+                            <option value="M">Mensuelle</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Filtres géographiques (garder votre logique existante) -->
+                <div class="form-section">
+                    <h3>🗺️ Filtres géographiques</h3>
+                    
+                    <div class="form-group">
+                        <label for="locationMode">Mode de localisation</label>
+                        <select id="locationMode" class="form-control" onchange="updateLocationFields()">
+                            <option value="auto">Distribution automatique</option>
+                            <option value="filter">Filtrer par critères</option>
+                            <option value="custom">Ville personnalisée</option>
+                        </select>
+                    </div>
+
+                    <div id="filterFields" class="form-group" style="display: none;">
+                        <label for="filterRegion">Région</label>
+                        <select id="filterRegion" class="form-control">
+                            <option value="">Toutes les régions</option>
+                            <option value="Central">Central</option>
+                            <option value="Northern">Northern</option>
+                            <option value="Southern">Southern</option>
+                            <option value="East Malaysia">East Malaysia</option>
+                            <option value="East Coast">East Coast</option>
+                        </select>
+                    </div>
+
+                    <div id="customFields" class="form-group" style="display: none;">
+                        <label for="customCity">Nom de la ville</label>
+                        <input type="text" id="customCity" class="form-control" 
+                               placeholder="Ex: Kuala Lumpur">
+                        
+                        <label for="customPopulation" class="mt-2">Population</label>
+                        <input type="number" id="customPopulation" class="form-control" 
+                               placeholder="Ex: 1800000">
+                    </div>
+
+                    <!-- NOUVEAU: Bouton pour cartographie -->
+                    <div class="form-group mt-3">
+                        <button type="button" class="btn btn-outline w-100" 
+                                onclick="showCityOnMap()">
+                            🗺️ Localiser sur la carte
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Boutons d'action -->
+            <div class="flex flex-center gap-2 mt-4">
+                <button onclick="generateData()" class="btn btn-primary btn-lg">
+                    🚀 Générer les données
+                </button>
+                <button onclick="resetForm()" class="btn btn-secondary">
+                    🔄 Réinitialiser
+                </button>
+                <!-- NOUVEAU: Bouton diagnostic OSM -->
+                <button onclick="debugOSMMap()" class="btn btn-outline">
+                    🔍 Debug carte
+                </button>
+            </div>
+        </div>
+
+        <!-- Zone des résultats -->
+        <div id="results" class="fade-in" style="display: none;">
+            <!-- 
+            IMPORTANT: La cartographie OSM sera automatiquement insérée ici
+            par le module osm_map.js au début de cette section 
+            -->
+            
+            <!-- Alertes (garder votre logique existante) -->
+            <div id="alerts"></div>
+
+            <!-- Statistiques (améliorer avec les nouveaux styles) -->
+            <div id="statsGrid" class="stats-container"></div>
+
+            <!-- Prévisualisation des données (garder votre logique existante) -->
+            <div class="professional-card">
+                <div class="card-header">
+                    <h3 class="card-title">
+                        📋 Aperçu des données générées
+                    </h3>
+                    <div class="card-badge">Résultats</div>
+                </div>
+                <div id="dataPreview" class="data-card-body"></div>
+            </div>
+
+            <!-- Panel de validation (si disponible) -->
+            <div id="validationPanel" class="professional-card" style="display: none;">
+                <div class="card-header">
+                    <h3 class="card-title">
+                        ✅ Validation des données
+                    </h3>
+                    <div class="card-badge">Qualité</div>
+                </div>
+                <div class="data-card-body">
+                    <div class="text-center">
+                        <div class="stat-value" id="validationScore">0%</div>
+                        <div class="stat-label">Score de qualité</div>
+                    </div>
+                    <div id="validationDetails" class="mt-3"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Zone de chargement -->
+        <div id="loadingIndicator" class="loading-container" style="display: none;">
+            <div class="spinner"></div>
+            <div class="loading-text">Génération des données en cours...</div>
+        </div>
+    </div>
+
+    <!-- Scripts existants (garder tous vos scripts actuels) -->
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    
+    <!-- NOUVEAU: Script de cartographie OSM -->
+    <script src="{{ url_for('static', filename='osm_map.js') }}"></script>
+
+    <!-- NOUVEAU: Script d'intégration -->
+    <script>
+        /**
+         * Script d'intégration pour lier l'application existante avec la cartographie OSM
+         */
+
+        // Configuration globale de l'application
+        window.APP_CONFIG = {
+            version: '2.0.0',
+            features: {
+                osm_integration: true,
+                professional_design: true,
+                real_time_map: true
+            },
+            osm: {
+                enabled: true,
+                auto_load: true,
+                fallback_enabled: true
+            }
+        };
+
+        /**
+         * Fonction pour afficher une ville sur la carte
+         */
+        function showCityOnMap() {
+            const locationMode = document.getElementById('locationMode').value;
+            let cityName = '';
+            
+            if (locationMode === 'custom') {
+                cityName = document.getElementById('customCity').value.trim();
+                if (!cityName) {
+                    alert('⚠️ Veuillez saisir un nom de ville');
+                    return;
+                }
+            } else {
+                // Utiliser une ville par défaut ou la première générée
+                cityName = 'Kuala Lumpur';
+            }
+            
+            // Utiliser l'API OSM Map si disponible
+            if (window.OSMMapAPI && window.OSMMapAPI.isReady()) {
+                window.OSMMapAPI.searchCity(cityName);
+                
+                // Faire défiler jusqu'à la carte
+                const mapContainer = document.getElementById('osmMapContainer');
+                if (mapContainer) {
+                    mapContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            } else {
+                console.warn('⚠️ Module de cartographie OSM non disponible');
+                alert('🗺️ La cartographie sera disponible après la génération des données');
+            }
+        }
+
+        /**
+         * Mise à jour des champs de localisation
+         */
+        function updateLocationFields() {
+            const mode = document.getElementById('locationMode').value;
+            const filterFields = document.getElementById('filterFields');
+            const customFields = document.getElementById('customFields');
+            
+            // Cacher tous les champs
+            filterFields.style.display = 'none';
+            customFields.style.display = 'none';
+            
+            // Afficher selon le mode
+            if (mode === 'filter') {
+                filterFields.style.display = 'block';
+            } else if (mode === 'custom') {
+                customFields.style.display = 'block';
+            }
+        }
+
+        /**
+         * Réinitialisation du formulaire
+         */
+        function resetForm() {
+            if (confirm('🔄 Êtes-vous sûr de vouloir réinitialiser le formulaire ?')) {
+                document.getElementById('numBuildings').value = '100';
+                document.getElementById('startDate').value = '2024-01-01';
+                document.getElementById('endDate').value = '2024-12-31';
+                document.getElementById('freq').value = 'H';
+                document.getElementById('locationMode').value = 'auto';
+                document.getElementById('customCity').value = '';
+                document.getElementById('customPopulation').value = '';
+                
+                updateLocationFields();
+                
+                // Effacer la carte si elle existe
+                if (window.OSMMapAPI && window.OSMMapAPI.isReady()) {
+                    window.OSMMapAPI.clearBuildings();
+                }
+                
+                // Masquer les résultats
+                document.getElementById('results').style.display = 'none';
+            }
+        }
+
+        /**
+         * Extension de la fonction generateData existante
+         */
+        if (typeof generateData === 'function') {
+            const originalGenerateData = generateData;
+            
+            window.generateData = async function() {
+                console.log('🚀 Génération avec intégration OSM...');
+                
+                try {
+                    // Appeler la fonction originale
+                    const result = await originalGenerateData();
+                    
+                    // Après génération réussie, proposer de charger la carte
+                    if (result && window.OSMMapAPI && window.OSMMapAPI.isReady()) {
+                        setTimeout(() => {
+                            const cityName = document.getElementById('customCity').value.trim() || 'Kuala Lumpur';
+                            
+                            if (confirm(`🗺️ Voulez-vous visualiser les données sur la carte pour ${cityName} ?`)) {
+                                window.OSMMapAPI.searchCity(cityName);
+                                
+                                // Faire défiler jusqu'à la carte
+                                setTimeout(() => {
+                                    const mapContainer = document.getElementById('osmMapContainer');
+                                    if (mapContainer) {
+                                        mapContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                    }
+                                }, 1000);
+                            }
+                        }, 2000);
+                    }
+                    
+                    return result;
+                    
+                } catch (error) {
+                    console.error('❌ Erreur génération:', error);
+                    throw error;
+                }
+            };
+        }
+
+        /**
+         * Fonction de diagnostic OSM
+         */
+        function debugOSMMap() {
+            if (typeof window.debugOSMMap === 'function') {
+                window.debugOSMMap();
+            } else {
+                console.log('🔍 Diagnostic OSM Map:');
+                console.log('- Module OSM Map:', window.osmMap ? '✅ Chargé' : '❌ Non chargé');
+                console.log('- API OSM:', window.OSMMapAPI ? '✅ Disponible' : '❌ Indisponible');
+                console.log('- Leaflet:', typeof L !== 'undefined' ? '✅ Chargé' : '❌ Non chargé');
+                
+                if (window.OSMMapAPI) {
+                    console.log('- État:', window.OSMMapAPI.isReady() ? '✅ Prêt' : '⚠️ Pas prêt');
+                    if (window.OSMMapAPI.isReady()) {
+                        const stats = window.OSMMapAPI.getStatistics();
+                        console.log('- Statistiques:', stats);
+                    }
+                }
+            }
+        }
+
+        /**
+         * Mise à jour du statut système
+         */
+        function updateSystemStatus() {
+            const statusElement = document.getElementById('systemStatus');
+            if (!statusElement) return;
+            
+            let status = '✅ Système opérationnel';
+            let className = 'badge-success';
+            
+            // Vérifier l'état des modules
+            const osmReady = window.OSMMapAPI && window.OSMMapAPI.isReady();
+            const mainAppReady = typeof generateData === 'function';
+            
+            if (!mainAppReady) {
+                status = '❌ Application principale non prête';
+                className = 'badge-error';
+            } else if (!osmReady) {
+                status = '⚠️ Cartographie en cours de chargement';
+                className = 'badge-warning';
+            }
+            
+            statusElement.textContent = status;
+            statusElement.className = `badge ${className}`;
+        }
+
+        /**
+         * Amélioration de l'affichage des statistiques
+         */
+        function enhanceStatsDisplay(data) {
+            const statsGrid = document.getElementById('statsGrid');
+            if (!statsGrid || !data) return;
+            
+            // Créer des cartes de statistiques améliorées
+            let statsHTML = '';
+            
+            if (data.stats) {
+                const stats = data.stats;
+                
+                // Carte total de bâtiments
+                if (stats.buildings_count) {
+                    statsHTML += `
+                        <div class="stat-card">
+                            <div class="stat-value">${stats.buildings_count.toLocaleString()}</div>
+                            <div class="stat-label">Bâtiments générés</div>
+                        </div>
+                    `;
+                }
+                
+                // Carte total d'enregistrements
+                if (stats.total_records) {
+                    statsHTML += `
+                        <div class="stat-card">
+                            <div class="stat-value">${stats.total_records.toLocaleString()}</div>
+                            <div class="stat-label">Enregistrements totaux</div>
+                        </div>
+                    `;
+                }
+                
+                // Carte villes couvertes
+                if (stats.unique_locations) {
+                    statsHTML += `
+                        <div class="stat-card">
+                            <div class="stat-value">${stats.unique_locations}</div>
+                            <div class="stat-label">Villes</div>
+                        </div>
+                    `;
+                }
+                
+                // Carte période
+                if (stats.date_range) {
+                    const days = Math.ceil((new Date(stats.date_range.end) - new Date(stats.date_range.start)) / (1000 * 60 * 60 * 24));
+                    statsHTML += `
+                        <div class="stat-card">
+                            <div class="stat-value">${days}</div>
+                            <div class="stat-label">Jours de données</div>
+                        </div>
+                    `;
+                }
+            }
+            
+            statsGrid.innerHTML = statsHTML;
+            statsGrid.classList.add('fade-in');
+        }
+
+        /**
+         * Amélioration de l'affichage des alertes
+         */
+        function enhanceAlertsDisplay(message, type = 'info') {
+            const alertsContainer = document.getElementById('alerts');
+            if (!alertsContainer) return;
+            
+            const alertTypes = {
+                'success': { icon: '✅', class: 'alert-success' },
+                'warning': { icon: '⚠️', class: 'alert-warning' },
+                'error': { icon: '❌', class: 'alert-error' },
+                'info': { icon: 'ℹ️', class: 'alert-info' }
+            };
+            
+            const alertConfig = alertTypes[type] || alertTypes['info'];
+            
+            const alertHTML = `
+                <div class="alert ${alertConfig.class}">
+                    <div class="alert-icon">${alertConfig.icon}</div>
+                    <div>${message}</div>
+                </div>
+            `;
+            
+            alertsContainer.innerHTML = alertHTML;
+            alertsContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        /**
+         * Gestionnaire d'événements pour l'amélioration de l'interface
+         */
+        function setupEnhancedUI() {
+            // Améliorer les interactions des formulaires
+            const formControls = document.querySelectorAll('.form-control');
+            formControls.forEach(control => {
+                control.addEventListener('focus', function() {
+                    this.parentElement.classList.add('focused');
+                });
+                
+                control.addEventListener('blur', function() {
+                    this.parentElement.classList.remove('focused');
+                });
+            });
+            
+            // Ajouter des effets hover aux cartes
+            const cards = document.querySelectorAll('.professional-card');
+            cards.forEach(card => {
+                card.addEventListener('mouseenter', function() {
+                    this.style.transform = 'translateY(-2px)';
+                });
+                
+                card.addEventListener('mouseleave', function() {
+                    this.style.transform = 'translateY(0)';
+                });
+            });
+            
+            // Mise à jour périodique du statut
+            setInterval(updateSystemStatus, 5000);
+        }
+
+        /**
+         * Initialisation de l'interface améliorée
+         */
+        function initializeEnhancedInterface() {
+            console.log('🎨 Initialisation interface améliorée...');
+            
+            // Configuration de l'UI améliorée
+            setupEnhancedUI();
+            
+            // Mise à jour initiale du statut
+            updateSystemStatus();
+            
+            // Exposer les fonctions d'amélioration globalement
+            window.enhanceStatsDisplay = enhanceStatsDisplay;
+            window.enhanceAlertsDisplay = enhanceAlertsDisplay;
+            
+            console.log('✅ Interface améliorée initialisée');
+        }
+
+        /**
+         * Gestion des erreurs globales avec interface améliorée
+         */
+        window.addEventListener('error', function(event) {
+            console.error('🚨 Erreur application:', event.error);
+            enhanceAlertsDisplay(
+                'Une erreur inattendue s\'est produite. Consultez la console pour plus de détails.',
+                'error'
+            );
+        });
+
+        /**
+         * Démarrage de l'application
+         */
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('📄 DOM chargé - Initialisation...');
+            
+            // Initialiser l'interface améliorée
+            setTimeout(initializeEnhancedInterface, 100);
+            
+            // Initialiser les champs de localisation
+            updateLocationFields();
+            
+            console.log('🚀 Application avec cartographie OSM prête !');
+        });
+
+        // Message de bienvenue dans la console
+        console.log(`
+🇲🇾 MALAYSIA DATA GENERATOR - VERSION AVEC CARTOGRAPHIE OSM
+===========================================================
+✅ Interface professionnelle avec glassmorphism
+🗺️ Cartographie interactive OpenStreetMap
+🏗️ Visualisation des bâtiments par type
+🎯 Intégration complète avec l'application existante
+🔧 Système de fallback automatique
+📊 Statistiques améliorées
+🎨 Design responsive et moderne
+
+Fonctionnalités disponibles:
+- Génération de données avec géolocalisation réelle
+- Cartographie interactive avec légende
+- Recherche et affichage de villes
+- Export des données cartographiques
+- Diagnostic et débogage intégré
+
+Pour déboguer: debugOSMMap()
+Pour aide: Consultez la documentation du module
+
+Prêt à générer des données avec cartographie! 🚀
+        `);
+    </script>
+</body>
+</html>
